@@ -1,0 +1,200 @@
+Product Requirements Document: SEAP
+Project Overview
+SEAP is a platform to educate users about phishing and social engineering. It does so via interactive, simulated campaigns, all within a safe and ethical environment. Both learners (students/employees) and admins have distinct roles ensuring safety, education, and accountability.
+
+1. Goals & Objectives
+Teach users to recognize and react appropriately to phishing attempts.
+
+Offer hands-on, safe simulation without storing sensitive information.
+
+Empower admins to moderate content and oversee campaign safety.
+
+2. Stakeholders & Roles
+Normal Users: Register, create campaigns, share links, view analytics, learn from feedback.
+
+Admins: Approve/reject campaigns, monitor the system, view audit logs, manage users.
+
+3. Functional Requirements
+1. User Registration & Authentication
+Support sign-up via email and password.
+
+Email verification or OTP for login confirmation.
+
+Differentiate between admin and normal users at registration.
+
+JWT-based authentication for secure sessions.
+
+2. User Profile Management
+Users can update email, password.
+
+Admins can view all registered users.
+
+Option for user deletion/report by admin.
+
+3. Campaign Management
+Users can create campaigns with:
+
+Title, description
+
+Email text simulation
+
+Fake landing page link
+
+Expiry date
+
+Campaign status: Pending, Approved, Rejected
+
+Admin panel for reviewing submitted campaigns
+
+Approval/rejection workflow with comments
+
+4. Phishing Simulation System
+Unique tracking links generated per campaign.
+
+Landing page mimics phishing attempt (no real data captured).
+
+Email simulation via copy-paste or mock sender.
+
+After interaction, redirect to awareness page.
+
+Strict measures to prevent real data misuse.
+
+5. Event Tracking & Logging
+Log these events: link opened, clicked, fake form submitted, awareness page viewed.
+
+Timestamp each event, associate with campaign and user.
+
+6. Awareness & Education Page
+Display when users “fall” for simulation.
+
+Explain phishing techniques, signs, and cybersecurity tips.
+
+Suggest best practices visually and textually.
+
+7. Admin Panel
+Approve/reject campaigns (with reason).
+
+View active/archived campaigns and their stats.
+
+Manage users (view, delete, report).
+
+Access audit logs of all admin actions.
+
+View leaderboard — top campaign creators by engagement.
+
+8. Leaderboard & Gamification
+Leaderboard based on:
+
+Most campaign clicks
+
+Most awareness conversions
+
+Least admin rejections
+
+Badges/levels (optional): “Phish Creator,” “Cyber Aware,” etc.
+
+9. Analytics Dashboard
+Visualizations: campaigns/user, clicks vs. awareness rate, event timeline, campaign type distributions.
+
+Filter data by date, user, campaign status.
+
+10. Audit Logs & Security Layer
+Admin actions recorded: approval, rejection, deletions.
+
+Data validation/sanitization on inputs.
+
+No sensitive credential storage.
+
+Approval before campaign goes live.
+
+Tracking tokens for events, not personal data.
+
+4. Non-Functional Requirements
+Performance: Responsive UI for analytics, dashboard.
+
+Security: Strict access controls, no real credential storage.
+
+Scalability: Support hundreds of simultaneous users.
+
+Auditability: All admin actions are tracked.
+
+Privacy/Ethics: All simulations are safe; no malicious intent can be executed.
+
+5. Step-by-Step Workflow (for Coding & Demo)
+Phase 1: Authentication & User Management
+Implement registration, login with JWT/OTP.
+
+User roles: normal, admin.
+
+Profile management for users and user listing for admins.
+
+Phase 2: Campaign Module
+Campaign creation form for users.
+
+Backend for storing campaign metadata.
+
+Admin campaign review dashboard for approval/rejection.
+
+Workflow transitions: Pending → Approved/Rejected.
+
+Phase 3: Phishing Simulation Engine
+Unique token-based campaign links.
+
+Landing page mockups.
+
+Logging click/submission events.
+
+Phase 4: Awareness & Education Experience
+Awareness page triggered after simulated phishing “fall.”
+
+Educational content with actionable tips.
+
+Phase 5: Event Tracking & Analytics
+Backend event logs for all interactions.
+
+Analytics dashboard showing campaign performance.
+
+Phase 6: Admin Panel & Audit Logs
+Campaign moderation workflow for admins.
+
+Admin user management.
+
+View audit logs and leaderboard.
+
+Phase 7: Leaderboard & Gamification
+Algorithm to rank users by campaign performance.
+
+Optional badge and levels assignment.
+
+Phase 8: Testing & Security Review
+Test all flows for edge cases.
+
+Pen-test for data misuse prevention.
+
+Review input sanitization and event logging.
+
+6. Final Deliverables
+User authentication system with role differentiation
+
+Campaign creation and approval workflow
+
+Unique, shareable simulation links
+
+Event tracking (clicks, conversions, awareness)
+
+Awareness page with educational content
+
+Admin dashboard and audit logs
+
+Leaderboard and analytics dashboard
+
+Suggested Technology Stack
+Frontend: React.js or Next.js
+
+Backend: Language Go using http and goriila mux modules
+
+Database: PostgreSQL / MongoDB
+
+Authentication: JWT, Email OTP
+
+Visualization: Chart.js, D3.js
