@@ -8,7 +8,7 @@ import Layout from '@/components/Layout'
 import toast from 'react-hot-toast'
 
 interface User {
-  id: number
+  id: string  // MongoDB ObjectID is returned as string
   email: string
   role: string
   email_verified: boolean
@@ -44,7 +44,7 @@ export default function AdminUsersPage() {
     }
   }
 
-  const handleDelete = async (id: number) => {
+  const handleDelete = async (id: string) => {
     if (!confirm('Are you sure you want to delete this user? This will delete all their campaigns.')) return
 
     try {
@@ -86,12 +86,11 @@ export default function AdminUsersPage() {
             <tbody className="bg-white divide-y divide-gray-200">
               {users.map((u) => (
                 <tr key={u.id}>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm">{u.id}</td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">{u.email}</td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm">
-                    <span className={`px-2 py-1 rounded ${
-                      u.role === 'admin' ? 'bg-purple-100 text-purple-800' : 'bg-gray-100 text-gray-800'
-                    }`}>
+                  <td className="px-6 py-4 whitespace-nowrap  text-black text-sm">{u.id}</td>
+                  <td className="px-6 py-4 whitespace-nowrap  text-black text-sm font-medium">{u.email}</td>
+                  <td className="px-6 py-4 whitespace-nowrap  text-black text-sm">
+                    <span className={`px-2 py-1 rounded ${u.role === 'admin' ? 'bg-purple-100 text-purple-800' : 'bg-gray-100 text-gray-800'
+                      }`}>
                       {u.role}
                     </span>
                   </td>

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"log"
 	"net/http"
 	"os"
@@ -20,16 +21,15 @@ func main() {
 	}
 
 	// Initialize database
-	db, err := database.InitDB()
+	client, db, err := database.InitDB()
 	if err != nil {
 		log.Fatal("Failed to connect to database:", err)
 	}
-	defer db.Close()
-
-	// Run migrations
-	if err := database.RunMigrations(db); err != nil {
-		log.Fatal("Failed to run migrations:", err)
-	}
+	defer func() {
+		if err := client.Disconnect(context.Background()); err != nil {
+			log.Fatal("Failed to disconnect from database:", err)
+		}
+	}()
 
 	// Initialize handlers
 	h := handlers.NewHandler(db)
@@ -37,8 +37,14 @@ func main() {
 	// Setup router
 	r := mux.NewRouter()
 
-	// CORS middleware
+	// CORS middleware - must be first
 	r.Use(middleware.CORS)
+
+	// Handle all OPTIONS requests for CORS preflight (catch-all for any path)
+	r.PathPrefix("/").Methods("OPTIONS").HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// CORS headers are already set by middleware, just return OK
+		w.WriteHeader(http.StatusOK)
+	})
 
 	// Public routes
 	r.HandleFunc("/api/health", handlers.HealthCheck).Methods("GET")
@@ -85,4 +91,3 @@ func main() {
 	log.Printf("Server starting on port %s", port)
 	log.Fatal(http.ListenAndServe(":"+port, r))
 }
-

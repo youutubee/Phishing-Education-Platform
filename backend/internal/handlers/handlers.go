@@ -1,16 +1,17 @@
 package handlers
 
 import (
-	"database/sql"
 	"encoding/json"
 	"net/http"
+
+	"go.mongodb.org/mongo-driver/mongo"
 )
 
 type Handler struct {
-	DB *sql.DB
+	DB *mongo.Database
 }
 
-func NewHandler(db *sql.DB) *Handler {
+func NewHandler(db *mongo.Database) *Handler {
 	return &Handler{DB: db}
 }
 

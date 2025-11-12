@@ -111,8 +111,8 @@ export default function AdminCampaignsPage() {
         <h1 className="text-3xl font-bold text-gray-900 mb-6">Admin - Campaign Management</h1>
 
         {selectedCampaign && (
-          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-            <div className="bg-white rounded-lg shadow-xl p-6 max-w-md w-full">
+          <div className="fixed inset-0 text-black bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+            <div className="bg-white text-black rounded-lg shadow-xl p-6 max-w-md w-full">
               <h2 className="text-xl font-semibold mb-4">
                 {action === 'approve' ? 'Approve Campaign' : 'Reject Campaign'}
               </h2>
@@ -124,7 +124,7 @@ export default function AdminCampaignsPage() {
                   value={comment}
                   onChange={(e) => setComment(e.target.value)}
                   rows={4}
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                  className="w-full px-4 py-2 border text-black border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
                   placeholder={action === 'approve' ? 'Optional comment...' : 'Reason for rejection (required)'}
                 />
               </div>
@@ -145,35 +145,35 @@ export default function AdminCampaignsPage() {
                     setAction(null)
                     setComment('')
                   }}
-                  className="flex-1 px-4 py-2 rounded-lg bg-gray-200 text-gray-800 hover:bg-gray-300 transition-colors"
+                  className="flex-1 px-4 py-2 rounded-lg bg-red-200 text-black hover:bg-red-300 transition-colors"
                 >
                   Cancel
                 </button>
-              </div>
+              </div>  
             </div>
           </div>
         )}
 
         <div className="grid grid-cols-1 gap-4">
           {campaigns.map((campaign) => (
-            <div key={campaign.id} className="bg-white rounded-lg shadow p-6">
+            <div key={campaign.id} className="bg-white text-black rounded-lg shadow p-6">
               <div className="flex justify-between items-start">
                 <div className="flex-1">
                   <div className="flex items-center gap-3 mb-2">
                     <h3 className="text-xl font-semibold">{campaign.title}</h3>
-                    <span className={`px-2 py-1 rounded text-sm font-medium ${getStatusColor(campaign.status)}`}>
+                    <span className={`px-2 py-1 text-black rounded text-sm font-medium ${getStatusColor(campaign.status)}`}>
                       {campaign.status}
                     </span>
                   </div>
                   {campaign.description && (
-                    <p className="text-gray-600 mb-2">{campaign.description}</p>
+                    <p className="text-black mb-2">{campaign.description}</p>
                   )}
                   {campaign.admin_comment && (
-                    <p className="text-sm text-gray-500 mb-2">
+                    <p className="text-sm text-black mb-2">
                       <strong>Admin comment:</strong> {campaign.admin_comment}
                     </p>
                   )}
-                  <div className="text-sm text-gray-500">
+                  <div className="text-sm text-black">
                     <p>Created by: {campaign.user_email}</p>
                     <p>Created: {new Date(campaign.created_at).toLocaleDateString()}</p>
                   </div>

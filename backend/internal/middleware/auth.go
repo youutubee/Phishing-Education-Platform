@@ -18,17 +18,40 @@ const UserRoleKey contextKey = "user_role"
 func CORS(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		origin := r.Header.Get("Origin")
+
+		// Check if origin is localhost (for development)
+		// This allows any localhost port for development flexibility
+		isLocalhost := false
 		if origin != "" {
+			if strings.HasPrefix(origin, "http://localhost:") ||
+				strings.HasPrefix(origin, "https://localhost:") ||
+				strings.HasPrefix(origin, "http://127.0.0.1:") ||
+				strings.HasPrefix(origin, "https://127.0.0.1:") {
+				isLocalhost = true
+			}
+		}
+
+		// Always set CORS headers for all requests
+		if origin != "" {
+			// If origin is present, use it
 			w.Header().Set("Access-Control-Allow-Origin", origin)
-			w.Header().Set("Vary", "Origin")
+			if isLocalhost {
+				// For localhost, allow credentials
+				w.Header().Set("Access-Control-Allow-Credentials", "true")
+			}
 		} else {
+			// No origin header - allow all (for same-origin or non-browser requests)
 			w.Header().Set("Access-Control-Allow-Origin", "*")
 		}
-		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
-		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Requested-With")
-		w.Header().Set("Access-Control-Allow-Credentials", "true")
-		w.Header().Set("Access-Control-Expose-Headers", "Content-Type, Authorization")
 
+		// Set other CORS headers
+		w.Header().Set("Vary", "Origin")
+		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS, PATCH")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Requested-With, Accept")
+		w.Header().Set("Access-Control-Expose-Headers", "Content-Type, Authorization")
+		w.Header().Set("Access-Control-Max-Age", "3600")
+
+		// Handle preflight requests - MUST set headers before WriteHeader
 		if r.Method == "OPTIONS" {
 			w.WriteHeader(http.StatusOK)
 			return
@@ -76,7 +99,7 @@ func AuthMiddleware(next http.Handler) http.Handler {
 			return
 		}
 
-		userID, ok := claims["user_id"].(float64)
+		userIDStr, ok := claims["user_id"].(string)
 		if !ok {
 			respondWithError(w, http.StatusUnauthorized, "Invalid user ID in token")
 			return
@@ -88,7 +111,7 @@ func AuthMiddleware(next http.Handler) http.Handler {
 			return
 		}
 
-		ctx := context.WithValue(r.Context(), UserIDKey, int(userID))
+		ctx := context.WithValue(r.Context(), UserIDKey, userIDStr)
 		ctx = context.WithValue(ctx, UserRoleKey, userRole)
 
 		next.ServeHTTP(w, r.WithContext(ctx))
@@ -112,4 +135,3 @@ func respondWithError(w http.ResponseWriter, code int, message string) {
 	w.WriteHeader(code)
 	json.NewEncoder(w).Encode(map[string]string{"error": message})
 }
-

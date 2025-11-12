@@ -1,13 +1,29 @@
 package handlers
 
 import (
+	"context"
 	"net/http"
+	"time"
+
+	"go.mongodb.org/mongo-driver/bson"
+	"go.mongodb.org/mongo-driver/bson/primitive"
 
 	"seap/internal/middleware"
 )
 
 func (h *Handler) GetUserAnalytics(w http.ResponseWriter, r *http.Request) {
-	userID := r.Context().Value(middleware.UserIDKey).(int)
+	userIDStr := r.Context().Value(middleware.UserIDKey).(string)
+	userID, err := primitive.ObjectIDFromHex(userIDStr)
+	if err != nil {
+		respondWithError(w, http.StatusBadRequest, "Invalid user ID")
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	campaignsCollection := h.DB.Collection("campaigns")
+	eventsCollection := h.DB.Collection("events")
 
 	var stats struct {
 		TotalCampaigns      int     `json:"total_campaigns"`
@@ -20,70 +36,59 @@ func (h *Handler) GetUserAnalytics(w http.ResponseWriter, r *http.Request) {
 		ConversionRate      float64 `json:"conversion_rate"`
 	}
 
-	h.DB.QueryRow(
-		"SELECT COUNT(*) FROM campaigns WHERE user_id = $1",
-		userID,
-	).Scan(&stats.TotalCampaigns)
+	// Count campaigns
+	totalCampaigns, _ := campaignsCollection.CountDocuments(ctx, bson.M{"user_id": userID})
+	stats.TotalCampaigns = int(totalCampaigns)
+	approvedCampaigns, _ := campaignsCollection.CountDocuments(ctx, bson.M{"user_id": userID, "status": "approved"})
+	stats.ApprovedCampaigns = int(approvedCampaigns)
+	pendingCampaigns, _ := campaignsCollection.CountDocuments(ctx, bson.M{"user_id": userID, "status": "pending"})
+	stats.PendingCampaigns = int(pendingCampaigns)
+	rejectedCampaigns, _ := campaignsCollection.CountDocuments(ctx, bson.M{"user_id": userID, "status": "rejected"})
+	stats.RejectedCampaigns = int(rejectedCampaigns)
 
-	h.DB.QueryRow(
-		"SELECT COUNT(*) FROM campaigns WHERE user_id = $1 AND status = 'approved'",
-		userID,
-	).Scan(&stats.ApprovedCampaigns)
+	// Get campaign IDs
+	campaignCursor, _ := campaignsCollection.Find(ctx, bson.M{"user_id": userID})
+	var campaignIDs []primitive.ObjectID
+	for campaignCursor.Next(ctx) {
+		var campaign struct {
+			ID primitive.ObjectID `bson:"_id"`
+		}
+		if err := campaignCursor.Decode(&campaign); err == nil {
+			campaignIDs = append(campaignIDs, campaign.ID)
+		}
+	}
+	campaignCursor.Close(ctx)
 
-	h.DB.QueryRow(
-		"SELECT COUNT(*) FROM campaigns WHERE user_id = $1 AND status = 'pending'",
-		userID,
-	).Scan(&stats.PendingCampaigns)
+	if len(campaignIDs) > 0 {
+		// Count clicks
+		totalClicks, _ := eventsCollection.CountDocuments(ctx, bson.M{
+			"campaign_id": bson.M{"$in": campaignIDs},
+			"event_type":  bson.M{"$in": []string{"link_opened", "clicked"}},
+		})
+		stats.TotalClicks = int(totalClicks)
 
-	h.DB.QueryRow(
-		"SELECT COUNT(*) FROM campaigns WHERE user_id = $1 AND status = 'rejected'",
-		userID,
-	).Scan(&stats.RejectedCampaigns)
+		// Count submissions
+		totalSubmissions, _ := eventsCollection.CountDocuments(ctx, bson.M{
+			"campaign_id": bson.M{"$in": campaignIDs},
+			"event_type":  "form_submitted",
+		})
+		stats.TotalSubmissions = int(totalSubmissions)
 
-	h.DB.QueryRow(`
-		SELECT COUNT(*) FROM events e
-		JOIN campaigns c ON e.campaign_id = c.id
-		WHERE c.user_id = $1 AND (e.event_type = 'link_opened' OR e.event_type = 'clicked')
-	`, userID).Scan(&stats.TotalClicks)
-
-	h.DB.QueryRow(`
-		SELECT COUNT(*) FROM events e
-		JOIN campaigns c ON e.campaign_id = c.id
-		WHERE c.user_id = $1 AND e.event_type = 'form_submitted'
-	`, userID).Scan(&stats.TotalSubmissions)
-
-	h.DB.QueryRow(`
-		SELECT COUNT(*) FROM events e
-		JOIN campaigns c ON e.campaign_id = c.id
-		WHERE c.user_id = $1 AND e.event_type = 'awareness_viewed'
-	`, userID).Scan(&stats.TotalAwarenessViews)
+		// Count awareness views
+		totalAwarenessViews, _ := eventsCollection.CountDocuments(ctx, bson.M{
+			"campaign_id": bson.M{"$in": campaignIDs},
+			"event_type":  "awareness_viewed",
+		})
+		stats.TotalAwarenessViews = int(totalAwarenessViews)
+	}
 
 	if stats.TotalClicks > 0 {
 		stats.ConversionRate = float64(stats.TotalAwarenessViews) / float64(stats.TotalClicks) * 100
 	}
 
-	rows, err := h.DB.Query(`
-		SELECT 
-			c.id,
-			c.title,
-			c.status,
-			COUNT(DISTINCT CASE WHEN e.event_type = 'link_opened' OR e.event_type = 'clicked' THEN e.id END) as clicks,
-			COUNT(DISTINCT CASE WHEN e.event_type = 'form_submitted' THEN e.id END) as submissions,
-			COUNT(DISTINCT CASE WHEN e.event_type = 'awareness_viewed' THEN e.id END) as awareness_views
-		FROM campaigns c
-		LEFT JOIN events e ON c.id = e.campaign_id
-		WHERE c.user_id = $1
-		GROUP BY c.id, c.title, c.status
-		ORDER BY c.created_at DESC
-	`, userID)
-	if err != nil {
-		respondWithError(w, http.StatusInternalServerError, "Database error")
-		return
-	}
-	defer rows.Close()
-
+	// Get campaign performance
 	type CampaignPerformance struct {
-		ID             int    `json:"id"`
+		ID             string `json:"id"`
 		Title          string `json:"title"`
 		Status         string `json:"status"`
 		Clicks         int    `json:"clicks"`
@@ -92,44 +97,89 @@ func (h *Handler) GetUserAnalytics(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var campaigns []CampaignPerformance
-	for rows.Next() {
-		var cp CampaignPerformance
-		err := rows.Scan(&cp.ID, &cp.Title, &cp.Status, &cp.Clicks, &cp.Submissions, &cp.AwarenessViews)
-		if err != nil {
-			respondWithError(w, http.StatusInternalServerError, "Failed to scan campaign performance")
-			return
+	campaignCursor, _ = campaignsCollection.Find(ctx, bson.M{"user_id": userID})
+	for campaignCursor.Next(ctx) {
+		var campaign struct {
+			ID     primitive.ObjectID `bson:"_id"`
+			Title  string             `bson:"title"`
+			Status string             `bson:"status"`
 		}
-		campaigns = append(campaigns, cp)
-	}
+		if err := campaignCursor.Decode(&campaign); err != nil {
+			continue
+		}
 
-	rows, err = h.DB.Query(`
-		SELECT DATE(e.created_at) as date, COUNT(*) as count
-		FROM events e
-		JOIN campaigns c ON e.campaign_id = c.id
-		WHERE c.user_id = $1 AND e.created_at >= NOW() - INTERVAL '30 days'
-		GROUP BY DATE(e.created_at)
-		ORDER BY date DESC
-	`, userID)
-	if err != nil {
-		respondWithError(w, http.StatusInternalServerError, "Database error")
-		return
-	}
-	defer rows.Close()
+		clicks, _ := eventsCollection.CountDocuments(ctx, bson.M{
+			"campaign_id": campaign.ID,
+			"event_type":  bson.M{"$in": []string{"link_opened", "clicked"}},
+		})
+		submissions, _ := eventsCollection.CountDocuments(ctx, bson.M{
+			"campaign_id": campaign.ID,
+			"event_type":  "form_submitted",
+		})
+		awarenessViews, _ := eventsCollection.CountDocuments(ctx, bson.M{
+			"campaign_id": campaign.ID,
+			"event_type":  "awareness_viewed",
+		})
 
+		campaigns = append(campaigns, CampaignPerformance{
+			ID:             campaign.ID.Hex(),
+			Title:          campaign.Title,
+			Status:         campaign.Status,
+			Clicks:         int(clicks),
+			Submissions:    int(submissions),
+			AwarenessViews: int(awarenessViews),
+		})
+	}
+	campaignCursor.Close(ctx)
+
+	// Get timeline (last 30 days)
 	type TimelineEntry struct {
 		Date  string `json:"date"`
 		Count int    `json:"count"`
 	}
 
 	var timeline []TimelineEntry
-	for rows.Next() {
-		var te TimelineEntry
-		err := rows.Scan(&te.Date, &te.Count)
-		if err != nil {
-			respondWithError(w, http.StatusInternalServerError, "Failed to scan timeline")
-			return
+	thirtyDaysAgo := time.Now().AddDate(0, 0, -30)
+	if len(campaignIDs) > 0 {
+		pipeline := []bson.M{
+			{
+				"$match": bson.M{
+					"campaign_id": bson.M{"$in": campaignIDs},
+					"created_at":  bson.M{"$gte": thirtyDaysAgo},
+				},
+			},
+			{
+				"$group": bson.M{
+					"_id": bson.M{
+						"$dateToString": bson.M{
+							"format": "%Y-%m-%d",
+							"date":   "$created_at",
+						},
+					},
+					"count": bson.M{"$sum": 1},
+				},
+			},
+			{
+				"$sort": bson.M{"_id": -1},
+			},
 		}
-		timeline = append(timeline, te)
+
+		cursor, err := eventsCollection.Aggregate(ctx, pipeline)
+		if err == nil {
+			for cursor.Next(ctx) {
+				var result struct {
+					ID    string `bson:"_id"`
+					Count int    `bson:"count"`
+				}
+				if err := cursor.Decode(&result); err == nil {
+					timeline = append(timeline, TimelineEntry{
+						Date:  result.ID,
+						Count: result.Count,
+					})
+				}
+			}
+			cursor.Close(ctx)
+		}
 	}
 
 	respondWithJSON(w, http.StatusOK, map[string]interface{}{
@@ -140,6 +190,13 @@ func (h *Handler) GetUserAnalytics(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) GetAdminAnalytics(w http.ResponseWriter, r *http.Request) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	usersCollection := h.DB.Collection("users")
+	campaignsCollection := h.DB.Collection("campaigns")
+	eventsCollection := h.DB.Collection("events")
+
 	var stats struct {
 		TotalUsers            int     `json:"total_users"`
 		TotalCampaigns        int     `json:"total_campaigns"`
@@ -152,73 +209,109 @@ func (h *Handler) GetAdminAnalytics(w http.ResponseWriter, r *http.Request) {
 		AverageConversionRate float64 `json:"average_conversion_rate"`
 	}
 
-	h.DB.QueryRow("SELECT COUNT(*) FROM users WHERE role = 'user'").Scan(&stats.TotalUsers)
-	h.DB.QueryRow("SELECT COUNT(*) FROM campaigns").Scan(&stats.TotalCampaigns)
-	h.DB.QueryRow("SELECT COUNT(*) FROM campaigns WHERE status = 'approved'").Scan(&stats.ApprovedCampaigns)
-	h.DB.QueryRow("SELECT COUNT(*) FROM campaigns WHERE status = 'pending'").Scan(&stats.PendingCampaigns)
-	h.DB.QueryRow("SELECT COUNT(*) FROM campaigns WHERE status = 'rejected'").Scan(&stats.RejectedCampaigns)
-	h.DB.QueryRow("SELECT COUNT(*) FROM events").Scan(&stats.TotalEvents)
-	h.DB.QueryRow("SELECT COUNT(*) FROM events WHERE event_type = 'link_opened' OR event_type = 'clicked'").Scan(&stats.TotalClicks)
-	h.DB.QueryRow("SELECT COUNT(*) FROM events WHERE event_type = 'awareness_viewed'").Scan(&stats.TotalConversions)
+	totalUsers, _ := usersCollection.CountDocuments(ctx, bson.M{"role": "user"})
+	stats.TotalUsers = int(totalUsers)
+	totalCampaigns, _ := campaignsCollection.CountDocuments(ctx, bson.M{})
+	stats.TotalCampaigns = int(totalCampaigns)
+	approvedCampaigns, _ := campaignsCollection.CountDocuments(ctx, bson.M{"status": "approved"})
+	stats.ApprovedCampaigns = int(approvedCampaigns)
+	pendingCampaigns, _ := campaignsCollection.CountDocuments(ctx, bson.M{"status": "pending"})
+	stats.PendingCampaigns = int(pendingCampaigns)
+	rejectedCampaigns, _ := campaignsCollection.CountDocuments(ctx, bson.M{"status": "rejected"})
+	stats.RejectedCampaigns = int(rejectedCampaigns)
+	totalEvents, _ := eventsCollection.CountDocuments(ctx, bson.M{})
+	stats.TotalEvents = int(totalEvents)
+	totalClicks, _ := eventsCollection.CountDocuments(ctx, bson.M{
+		"event_type": bson.M{"$in": []string{"link_opened", "clicked"}},
+	})
+	stats.TotalClicks = int(totalClicks)
+	totalConversions, _ := eventsCollection.CountDocuments(ctx, bson.M{
+		"event_type": "awareness_viewed",
+	})
+	stats.TotalConversions = int(totalConversions)
 
 	if stats.TotalClicks > 0 {
 		stats.AverageConversionRate = float64(stats.TotalConversions) / float64(stats.TotalClicks) * 100
 	}
 
-	rows, err := h.DB.Query(`
-		SELECT status, COUNT(*) as count
-		FROM campaigns
-		GROUP BY status
-	`)
-	if err != nil {
-		respondWithError(w, http.StatusInternalServerError, "Database error")
-		return
-	}
-	defer rows.Close()
-
+	// Status distribution
 	type StatusDistribution struct {
 		Status string `json:"status"`
 		Count  int    `json:"count"`
 	}
 
 	var distribution []StatusDistribution
-	for rows.Next() {
-		var sd StatusDistribution
-		err := rows.Scan(&sd.Status, &sd.Count)
-		if err != nil {
-			respondWithError(w, http.StatusInternalServerError, "Failed to scan distribution")
-			return
+	pipeline := []bson.M{
+		{
+			"$group": bson.M{
+				"_id":   "$status",
+				"count": bson.M{"$sum": 1},
+			},
+		},
+	}
+
+	cursor, err := campaignsCollection.Aggregate(ctx, pipeline)
+	if err == nil {
+		for cursor.Next(ctx) {
+			var result struct {
+				ID    string `bson:"_id"`
+				Count int    `bson:"count"`
+			}
+			if err := cursor.Decode(&result); err == nil {
+				distribution = append(distribution, StatusDistribution{
+					Status: result.ID,
+					Count:  result.Count,
+				})
+			}
 		}
-		distribution = append(distribution, sd)
+		cursor.Close(ctx)
 	}
 
-	rows, err = h.DB.Query(`
-		SELECT DATE(created_at) as date, COUNT(*) as count
-		FROM events
-		WHERE created_at >= NOW() - INTERVAL '30 days'
-		GROUP BY DATE(created_at)
-		ORDER BY date DESC
-	`)
-	if err != nil {
-		respondWithError(w, http.StatusInternalServerError, "Database error")
-		return
-	}
-	defer rows.Close()
-
+	// Timeline (last 30 days)
 	type TimelineEntry struct {
 		Date  string `json:"date"`
 		Count int    `json:"count"`
 	}
 
 	var timeline []TimelineEntry
-	for rows.Next() {
-		var te TimelineEntry
-		err := rows.Scan(&te.Date, &te.Count)
-		if err != nil {
-			respondWithError(w, http.StatusInternalServerError, "Failed to scan timeline")
-			return
+	thirtyDaysAgo := time.Now().AddDate(0, 0, -30)
+	pipeline = []bson.M{
+		{
+			"$match": bson.M{
+				"created_at": bson.M{"$gte": thirtyDaysAgo},
+			},
+		},
+		{
+			"$group": bson.M{
+				"_id": bson.M{
+					"$dateToString": bson.M{
+						"format": "%Y-%m-%d",
+						"date":   "$created_at",
+					},
+				},
+				"count": bson.M{"$sum": 1},
+			},
+		},
+		{
+			"$sort": bson.M{"_id": -1},
+		},
+	}
+
+	cursor, err = eventsCollection.Aggregate(ctx, pipeline)
+	if err == nil {
+		for cursor.Next(ctx) {
+			var result struct {
+				ID    string `bson:"_id"`
+				Count int    `bson:"count"`
+			}
+			if err := cursor.Decode(&result); err == nil {
+				timeline = append(timeline, TimelineEntry{
+					Date:  result.ID,
+					Count: result.Count,
+				})
+			}
 		}
-		timeline = append(timeline, te)
+		cursor.Close(ctx)
 	}
 
 	respondWithJSON(w, http.StatusOK, map[string]interface{}{

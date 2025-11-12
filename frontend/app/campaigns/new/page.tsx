@@ -68,7 +68,7 @@ export default function NewCampaignPage() {
               value={formData.title}
               onChange={(e) => setFormData({ ...formData, title: e.target.value })}
               required
-              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+              className="w-full px-4 py-2 border border-gray-300 text-black rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
               placeholder="Phishing Campaign Title"
             />
           </div>
@@ -81,7 +81,7 @@ export default function NewCampaignPage() {
               value={formData.description}
               onChange={(e) => setFormData({ ...formData, description: e.target.value })}
               rows={3}
-              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+              className="w-full px-4 py-2 border border-gray-300 text-black rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
               placeholder="Campaign description"
             />
           </div>
@@ -95,7 +95,7 @@ export default function NewCampaignPage() {
               onChange={(e) => setFormData({ ...formData, email_text: e.target.value })}
               required
               rows={6}
-              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent font-mono text-sm"
+              className="w-full px-4 py-2 border text-black border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent font-mono text-sm"
               placeholder="Enter the email content that will be shown in the simulation..."
             />
           </div>
@@ -108,7 +108,7 @@ export default function NewCampaignPage() {
               type="url"
               value={formData.landing_page_url}
               onChange={(e) => setFormData({ ...formData, landing_page_url: e.target.value })}
-              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+              className="w-full px-4 py-2 border border-gray-300 text-black rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
               placeholder="https://example.com/phishing-page"
             />
           </div>
@@ -121,7 +121,7 @@ export default function NewCampaignPage() {
               type="datetime-local"
               value={formData.expiry_date}
               onChange={(e) => setFormData({ ...formData, expiry_date: e.target.value })}
-              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+              className="w-full px-4 py-2 border border-gray-300 text-black rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
             />
           </div>
 

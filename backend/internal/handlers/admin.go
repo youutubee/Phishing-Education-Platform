@@ -1,8 +1,14 @@
 package handlers
 
 import (
+	"context"
 	"net/http"
-	"strconv"
+	"time"
+
+	"go.mongodb.org/mongo-driver/bson"
+	"go.mongodb.org/mongo-driver/bson/primitive"
+	"go.mongodb.org/mongo-driver/mongo"
+	"go.mongodb.org/mongo-driver/mongo/options"
 
 	"seap/internal/middleware"
 	"seap/internal/models"
@@ -11,17 +17,23 @@ import (
 )
 
 func (h *Handler) GetAllUsers(w http.ResponseWriter, r *http.Request) {
-	rows, err := h.DB.Query(
-		"SELECT id, email, role, email_verified, created_at FROM users ORDER BY created_at DESC",
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	usersCollection := h.DB.Collection("users")
+	cursor, err := usersCollection.Find(
+		ctx,
+		bson.M{},
+		options.Find().SetSort(bson.M{"created_at": -1}),
 	)
 	if err != nil {
 		respondWithError(w, http.StatusInternalServerError, "Database error")
 		return
 	}
-	defer rows.Close()
+	defer cursor.Close(ctx)
 
 	type UserResponse struct {
-		ID            int    `json:"id"`
+		ID            string `json:"id"`
 		Email         string `json:"email"`
 		Role          string `json:"role"`
 		EmailVerified bool   `json:"email_verified"`
@@ -29,23 +41,33 @@ func (h *Handler) GetAllUsers(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var users []UserResponse
-	for rows.Next() {
-		var user UserResponse
-		err := rows.Scan(&user.ID, &user.Email, &user.Role, &user.EmailVerified, &user.CreatedAt)
-		if err != nil {
-			respondWithError(w, http.StatusInternalServerError, "Failed to scan user")
-			return
+	for cursor.Next(ctx) {
+		var user models.User
+		if err := cursor.Decode(&user); err != nil {
+			continue
 		}
-		users = append(users, user)
+		users = append(users, UserResponse{
+			ID:            user.ID.Hex(),
+			Email:         user.Email,
+			Role:          user.Role,
+			EmailVerified: user.EmailVerified,
+			CreatedAt:     user.CreatedAt.Format(time.RFC3339),
+		})
 	}
 
 	respondWithJSON(w, http.StatusOK, users)
 }
 
 func (h *Handler) DeleteUser(w http.ResponseWriter, r *http.Request) {
-	adminID := r.Context().Value(middleware.UserIDKey).(int)
+	adminIDStr := r.Context().Value(middleware.UserIDKey).(string)
+	adminID, err := primitive.ObjectIDFromHex(adminIDStr)
+	if err != nil {
+		respondWithError(w, http.StatusBadRequest, "Invalid admin ID")
+		return
+	}
+
 	vars := mux.Vars(r)
-	userID, err := strconv.Atoi(vars["id"])
+	userID, err := primitive.ObjectIDFromHex(vars["id"])
 	if err != nil {
 		respondWithError(w, http.StatusBadRequest, "Invalid user ID")
 		return
@@ -56,31 +78,59 @@ func (h *Handler) DeleteUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
 	// Check if user exists
-	var exists bool
-	err = h.DB.QueryRow("SELECT EXISTS(SELECT 1 FROM users WHERE id = $1)", userID).Scan(&exists)
-	if err != nil {
+	usersCollection := h.DB.Collection("users")
+	var user models.User
+	err = usersCollection.FindOne(ctx, bson.M{"_id": userID}).Decode(&user)
+	if err == mongo.ErrNoDocuments {
+		respondWithError(w, http.StatusNotFound, "User not found")
+		return
+	} else if err != nil {
 		respondWithError(w, http.StatusInternalServerError, "Database error")
 		return
 	}
-	if !exists {
-		respondWithError(w, http.StatusNotFound, "User not found")
-		return
-	}
 
-	// Delete user (cascade will handle related records)
-	_, err = h.DB.Exec("DELETE FROM users WHERE id = $1", userID)
+	// Delete user (MongoDB will handle related records if we set up proper cleanup)
+	_, err = usersCollection.DeleteOne(ctx, bson.M{"_id": userID})
 	if err != nil {
 		respondWithError(w, http.StatusInternalServerError, "Failed to delete user")
 		return
 	}
 
+	// Also delete related campaigns and events
+	campaignsCollection := h.DB.Collection("campaigns")
+	campaignCursor, _ := campaignsCollection.Find(ctx, bson.M{"user_id": userID})
+	var campaignIDs []primitive.ObjectID
+	for campaignCursor.Next(ctx) {
+		var campaign models.Campaign
+		if err := campaignCursor.Decode(&campaign); err == nil {
+			campaignIDs = append(campaignIDs, campaign.ID)
+		}
+	}
+	campaignCursor.Close(ctx)
+
+	if len(campaignIDs) > 0 {
+		campaignsCollection.DeleteMany(ctx, bson.M{"user_id": userID})
+		eventsCollection := h.DB.Collection("events")
+		eventsCollection.DeleteMany(ctx, bson.M{"campaign_id": bson.M{"$in": campaignIDs}})
+	}
+
 	// Log audit
-	details := `{"deleted_user_id": ` + strconv.Itoa(userID) + `}`
-	_, err = h.DB.Exec(
-		"INSERT INTO audit_logs (admin_id, action, resource_type, resource_id, details) VALUES ($1, $2, $3, $4, $5)",
-		adminID, "delete_user", "user", userID, details,
-	)
+	details := `{"deleted_user_id": "` + userID.Hex() + `"}`
+	auditLog := models.AuditLog{
+		ID:           primitive.NewObjectID(),
+		AdminID:      adminID,
+		Action:       "delete_user",
+		ResourceType: "user",
+		ResourceID:   &userID,
+		Details:      details,
+		CreatedAt:    time.Now(),
+	}
+	auditLogsCollection := h.DB.Collection("audit_logs")
+	_, err = auditLogsCollection.InsertOne(ctx, auditLog)
 	if err != nil {
 		// Log error but don't fail the request
 	}
@@ -89,75 +139,148 @@ func (h *Handler) DeleteUser(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) GetAuditLogs(w http.ResponseWriter, r *http.Request) {
-	rows, err := h.DB.Query(
-		`SELECT al.id, al.admin_id, al.action, al.resource_type, al.resource_id, al.details, al.created_at, u.email as admin_email
-		 FROM audit_logs al JOIN users u ON al.admin_id = u.id ORDER BY al.created_at DESC LIMIT 100`,
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	auditLogsCollection := h.DB.Collection("audit_logs")
+	cursor, err := auditLogsCollection.Find(
+		ctx,
+		bson.M{},
+		options.Find().SetSort(bson.M{"created_at": -1}).SetLimit(100),
 	)
 	if err != nil {
 		respondWithError(w, http.StatusInternalServerError, "Database error")
 		return
 	}
-	defer rows.Close()
+	defer cursor.Close(ctx)
 
 	type AuditLogResponse struct {
-		ID           int    `json:"id"`
-		AdminID      int    `json:"admin_id"`
-		AdminEmail   string `json:"admin_email"`
-		Action       string `json:"action"`
-		ResourceType string `json:"resource_type"`
-		ResourceID   *int   `json:"resource_id"`
-		Details      string `json:"details"`
-		CreatedAt    string `json:"created_at"`
+		ID           string  `json:"id"`
+		AdminID      string  `json:"admin_id"`
+		AdminEmail   string  `json:"admin_email"`
+		Action       string  `json:"action"`
+		ResourceType string  `json:"resource_type"`
+		ResourceID   *string `json:"resource_id"`
+		Details      string  `json:"details"`
+		CreatedAt    string  `json:"created_at"`
 	}
 
 	var logs []AuditLogResponse
-	for rows.Next() {
-		var log AuditLogResponse
-		err := rows.Scan(&log.ID, &log.AdminID, &log.Action, &log.ResourceType, &log.ResourceID, &log.Details, &log.CreatedAt, &log.AdminEmail)
-		if err != nil {
-			respondWithError(w, http.StatusInternalServerError, "Failed to scan audit log")
-			return
+	usersCollection := h.DB.Collection("users")
+	for cursor.Next(ctx) {
+		var log models.AuditLog
+		if err := cursor.Decode(&log); err != nil {
+			continue
 		}
-		logs = append(logs, log)
+
+		var adminEmail string
+		var adminUser models.User
+		if err := usersCollection.FindOne(ctx, bson.M{"_id": log.AdminID}).Decode(&adminUser); err == nil {
+			adminEmail = adminUser.Email
+		}
+
+		var resourceIDStr *string
+		if log.ResourceID != nil {
+			idStr := log.ResourceID.Hex()
+			resourceIDStr = &idStr
+		}
+
+		logs = append(logs, AuditLogResponse{
+			ID:           log.ID.Hex(),
+			AdminID:      log.AdminID.Hex(),
+			AdminEmail:   adminEmail,
+			Action:       log.Action,
+			ResourceType: log.ResourceType,
+			ResourceID:   resourceIDStr,
+			Details:      log.Details,
+			CreatedAt:    log.CreatedAt.Format(time.RFC3339),
+		})
 	}
 
 	respondWithJSON(w, http.StatusOK, logs)
 }
 
 func (h *Handler) GetLeaderboard(w http.ResponseWriter, r *http.Request) {
-	rows, err := h.DB.Query(`
-		SELECT 
-			u.id as user_id,
-			u.email,
-			COUNT(DISTINCT c.id) as total_campaigns,
-			COUNT(DISTINCT CASE WHEN e.event_type = 'link_opened' OR e.event_type = 'clicked' THEN e.id END) as total_clicks,
-			COUNT(DISTINCT CASE WHEN e.event_type = 'awareness_viewed' THEN e.id END) as total_conversions,
-			COUNT(DISTINCT CASE WHEN c.status = 'rejected' THEN c.id END) as rejected_count
-		FROM users u
-		LEFT JOIN campaigns c ON u.id = c.user_id
-		LEFT JOIN events e ON c.id = e.campaign_id
-		WHERE u.role = 'user'
-		GROUP BY u.id, u.email
-		ORDER BY total_clicks DESC, total_conversions DESC, rejected_count ASC
-		LIMIT 50
-	`)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	// Get all users with role 'user'
+	usersCollection := h.DB.Collection("users")
+	userCursor, err := usersCollection.Find(ctx, bson.M{"role": "user"})
 	if err != nil {
 		respondWithError(w, http.StatusInternalServerError, "Database error")
 		return
 	}
-	defer rows.Close()
+	defer userCursor.Close(ctx)
 
 	var leaderboard []models.LeaderboardEntry
-	for rows.Next() {
-		var entry models.LeaderboardEntry
-		err := rows.Scan(&entry.UserID, &entry.Email, &entry.TotalCampaigns, &entry.TotalClicks, &entry.TotalConversions, &entry.RejectedCount)
-		if err != nil {
-			respondWithError(w, http.StatusInternalServerError, "Failed to scan leaderboard entry")
-			return
+	campaignsCollection := h.DB.Collection("campaigns")
+	eventsCollection := h.DB.Collection("events")
+
+	for userCursor.Next(ctx) {
+		var user models.User
+		if err := userCursor.Decode(&user); err != nil {
+			continue
 		}
+
+		// Count campaigns
+		campaignCount, _ := campaignsCollection.CountDocuments(ctx, bson.M{"user_id": user.ID})
+
+		// Get campaign IDs
+		campaignCursor, _ := campaignsCollection.Find(ctx, bson.M{"user_id": user.ID})
+		var campaignIDs []primitive.ObjectID
+		for campaignCursor.Next(ctx) {
+			var campaign models.Campaign
+			if err := campaignCursor.Decode(&campaign); err == nil {
+				campaignIDs = append(campaignIDs, campaign.ID)
+			}
+		}
+		campaignCursor.Close(ctx)
+
+		// Count clicks (link_opened or clicked)
+		clickCount, _ := eventsCollection.CountDocuments(ctx, bson.M{
+			"campaign_id": bson.M{"$in": campaignIDs},
+			"event_type":  bson.M{"$in": []string{"link_opened", "clicked"}},
+		})
+
+		// Count conversions (awareness_viewed)
+		conversionCount, _ := eventsCollection.CountDocuments(ctx, bson.M{
+			"campaign_id": bson.M{"$in": campaignIDs},
+			"event_type":  "awareness_viewed",
+		})
+
+		// Count rejected campaigns
+		rejectedCount, _ := campaignsCollection.CountDocuments(ctx, bson.M{
+			"user_id": user.ID,
+			"status":  "rejected",
+		})
+
 		// Calculate score: clicks * 2 + conversions * 5 - rejections * 10
-		entry.Score = entry.TotalClicks*2 + entry.TotalConversions*5 - entry.RejectedCount*10
-		leaderboard = append(leaderboard, entry)
+		score := int(clickCount)*2 + int(conversionCount)*5 - int(rejectedCount)*10
+
+		leaderboard = append(leaderboard, models.LeaderboardEntry{
+			UserID:           user.ID,
+			Email:            user.Email,
+			TotalCampaigns:   int(campaignCount),
+			TotalClicks:      int(clickCount),
+			TotalConversions: int(conversionCount),
+			RejectedCount:    int(rejectedCount),
+			Score:            score,
+		})
+	}
+
+	// Sort by score (descending)
+	for i := 0; i < len(leaderboard); i++ {
+		for j := i + 1; j < len(leaderboard); j++ {
+			if leaderboard[i].Score < leaderboard[j].Score {
+				leaderboard[i], leaderboard[j] = leaderboard[j], leaderboard[i]
+			}
+		}
+	}
+
+	// Limit to top 50
+	if len(leaderboard) > 50 {
+		leaderboard = leaderboard[:50]
 	}
 
 	respondWithJSON(w, http.StatusOK, leaderboard)

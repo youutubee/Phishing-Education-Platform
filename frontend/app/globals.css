@@ -32,3 +32,22 @@ body {
   }
 }
 
+/* Ensure all input fields have black text */
+input[type="text"],
+input[type="email"],
+input[type="password"],
+input[type="number"],
+input[type="date"],
+input[type="datetime-local"],
+textarea,
+select {
+  color: #000000 !important;
+}
+
+input[type="text"]::placeholder,
+input[type="email"]::placeholder,
+input[type="password"]::placeholder,
+textarea::placeholder {
+  color: #9ca3af !important; /* gray-400 for placeholders */
+}
+

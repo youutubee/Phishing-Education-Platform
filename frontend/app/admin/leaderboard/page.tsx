@@ -89,9 +89,9 @@ export default function LeaderboardPage() {
                   <td className="px-6 py-4 whitespace-nowrap text-sm font-bold">
                     {getRankBadge(index)}
                   </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">{entry.email}</td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm">{entry.total_campaigns}</td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm">{entry.total_clicks}</td>
+                  <td className="px-6 py-4 whitespace-nowrap text-black text-sm font-medium">{entry.email}</td>
+                  <td className="px-6 py-4 whitespace-nowrap text-black text-sm">{entry.total_campaigns}</td>
+                  <td className="px-6 py-4 whitespace-nowrap text-black text-sm">{entry.total_clicks}</td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-green-600">{entry.total_conversions}</td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-red-600">{entry.rejected_count}</td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm font-bold text-primary-600">{entry.score}</td>

@@ -1,10 +1,15 @@
 package handlers
 
 import (
-	"database/sql"
+	"context"
 	"encoding/json"
 	"net/http"
 	"time"
+
+	"go.mongodb.org/mongo-driver/bson"
+	"go.mongodb.org/mongo-driver/bson/primitive"
+	"go.mongodb.org/mongo-driver/mongo"
+	"go.mongodb.org/mongo-driver/mongo/options"
 
 	"seap/internal/auth"
 	"seap/internal/models"
@@ -28,13 +33,17 @@ func (h *Handler) Register(w http.ResponseWriter, r *http.Request) {
 		req.Role = "user"
 	}
 
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
 	// Check if user exists
-	var existingID int
-	err := h.DB.QueryRow("SELECT id FROM users WHERE email = $1", req.Email).Scan(&existingID)
+	usersCollection := h.DB.Collection("users")
+	var existingUser models.User
+	err := usersCollection.FindOne(ctx, bson.M{"email": req.Email}).Decode(&existingUser)
 	if err == nil {
 		respondWithError(w, http.StatusConflict, "Email already registered")
 		return
-	} else if err != sql.ErrNoRows {
+	} else if err != mongo.ErrNoDocuments {
 		respondWithError(w, http.StatusInternalServerError, "Database error")
 		return
 	}
@@ -46,35 +55,39 @@ func (h *Handler) Register(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Create user
-	var userID int
-	err = h.DB.QueryRow(
-		"INSERT INTO users (email, password_hash, role, email_verified) VALUES ($1, $2, $3, $4) RETURNING id",
-		req.Email, hashedPassword, req.Role, false,
-	).Scan(&userID)
+	// Create user with email verified (no OTP required)
+	now := time.Now()
+	user := models.User{
+		ID:            primitive.NewObjectID(),
+		Email:         req.Email,
+		PasswordHash:  hashedPassword,
+		Role:          req.Role,
+		EmailVerified: true, // Auto-verify email
+		CreatedAt:     now,
+		UpdatedAt:     now,
+	}
+
+	_, err = usersCollection.InsertOne(ctx, user)
 	if err != nil {
 		respondWithError(w, http.StatusInternalServerError, "Failed to create user")
 		return
 	}
 
-	// Generate and store OTP
-	otpCode := auth.GenerateOTP()
-	expiresAt := auth.GetOTPExpiry()
-	_, err = h.DB.Exec(
-		"INSERT INTO otps (email, code, expires_at) VALUES ($1, $2, $3)",
-		req.Email, otpCode, expiresAt,
-	)
+	// Generate JWT token immediately
+	token, err := auth.GenerateJWT(user.ID.Hex(), user.Role)
 	if err != nil {
-		respondWithError(w, http.StatusInternalServerError, "Failed to generate OTP")
+		respondWithError(w, http.StatusInternalServerError, "Failed to generate token")
 		return
 	}
 
-	// In production, send OTP via email
-	// For now, return it in response (remove in production)
 	respondWithJSON(w, http.StatusCreated, map[string]interface{}{
-		"message": "User registered successfully. Please verify your email with OTP.",
-		"otp":     otpCode, // Remove this in production
-		"user_id": userID,
+		"message": "User registered successfully",
+		"token":   token,
+		"user": map[string]interface{}{
+			"id":    user.ID.Hex(),
+			"email": user.Email,
+			"role":  user.Role,
+		},
 	})
 }
 
@@ -85,13 +98,14 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var user models.User
-	err := h.DB.QueryRow(
-		"SELECT id, email, password_hash, role, email_verified FROM users WHERE email = $1",
-		req.Email,
-	).Scan(&user.ID, &user.Email, &user.PasswordHash, &user.Role, &user.EmailVerified)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
 
-	if err == sql.ErrNoRows {
+	usersCollection := h.DB.Collection("users")
+	var user models.User
+	err := usersCollection.FindOne(ctx, bson.M{"email": req.Email}).Decode(&user)
+
+	if err == mongo.ErrNoDocuments {
 		respondWithError(w, http.StatusUnauthorized, "Invalid credentials")
 		return
 	} else if err != nil {
@@ -104,28 +118,8 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if !user.EmailVerified {
-		// Generate new OTP
-		otpCode := auth.GenerateOTP()
-		expiresAt := auth.GetOTPExpiry()
-		_, err = h.DB.Exec(
-			"INSERT INTO otps (email, code, expires_at) VALUES ($1, $2, $3)",
-			req.Email, otpCode, expiresAt,
-		)
-		if err != nil {
-			respondWithError(w, http.StatusInternalServerError, "Failed to generate OTP")
-			return
-		}
-
-		respondWithJSON(w, http.StatusOK, map[string]interface{}{
-			"message": "Email not verified. Please verify with OTP.",
-			"otp":     otpCode, // Remove in production
-		})
-		return
-	}
-
-	// Generate JWT
-	token, err := auth.GenerateJWT(user.ID, user.Role)
+	// Generate JWT token directly (no OTP verification required)
+	token, err := auth.GenerateJWT(user.ID.Hex(), user.Role)
 	if err != nil {
 		respondWithError(w, http.StatusInternalServerError, "Failed to generate token")
 		return
@@ -134,7 +128,7 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 	respondWithJSON(w, http.StatusOK, map[string]interface{}{
 		"token": token,
 		"user": map[string]interface{}{
-			"id":    user.ID,
+			"id":    user.ID.Hex(),
 			"email": user.Email,
 			"role":  user.Role,
 		},
@@ -148,13 +142,18 @@ func (h *Handler) VerifyOTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var otp models.OTP
-	err := h.DB.QueryRow(
-		"SELECT id, email, code, expires_at, used FROM otps WHERE email = $1 AND code = $2 ORDER BY created_at DESC LIMIT 1",
-		req.Email, req.Code,
-	).Scan(&otp.ID, &otp.Email, &otp.Code, &otp.ExpiresAt, &otp.Used)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
 
-	if err == sql.ErrNoRows {
+	otpsCollection := h.DB.Collection("otps")
+	var otp models.OTP
+	err := otpsCollection.FindOne(
+		ctx,
+		bson.M{"email": req.Email, "code": req.Code},
+		options.FindOne().SetSort(bson.M{"created_at": -1}),
+	).Decode(&otp)
+
+	if err == mongo.ErrNoDocuments {
 		respondWithError(w, http.StatusBadRequest, "Invalid OTP")
 		return
 	} else if err != nil {
@@ -173,14 +172,23 @@ func (h *Handler) VerifyOTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Mark OTP as used
-	_, err = h.DB.Exec("UPDATE otps SET used = TRUE WHERE id = $1", otp.ID)
+	_, err = otpsCollection.UpdateOne(
+		ctx,
+		bson.M{"_id": otp.ID},
+		bson.M{"$set": bson.M{"used": true}},
+	)
 	if err != nil {
 		respondWithError(w, http.StatusInternalServerError, "Failed to update OTP")
 		return
 	}
 
 	// Verify user email
-	_, err = h.DB.Exec("UPDATE users SET email_verified = TRUE WHERE email = $1", req.Email)
+	usersCollection := h.DB.Collection("users")
+	_, err = usersCollection.UpdateOne(
+		ctx,
+		bson.M{"email": req.Email},
+		bson.M{"$set": bson.M{"email_verified": true, "updated_at": time.Now()}},
+	)
 	if err != nil {
 		respondWithError(w, http.StatusInternalServerError, "Failed to verify email")
 		return
@@ -188,17 +196,13 @@ func (h *Handler) VerifyOTP(w http.ResponseWriter, r *http.Request) {
 
 	// Get user and generate JWT
 	var user models.User
-	err = h.DB.QueryRow(
-		"SELECT id, email, role FROM users WHERE email = $1",
-		req.Email,
-	).Scan(&user.ID, &user.Email, &user.Role)
-
+	err = usersCollection.FindOne(ctx, bson.M{"email": req.Email}).Decode(&user)
 	if err != nil {
 		respondWithError(w, http.StatusInternalServerError, "Failed to get user")
 		return
 	}
 
-	token, err := auth.GenerateJWT(user.ID, user.Role)
+	token, err := auth.GenerateJWT(user.ID.Hex(), user.Role)
 	if err != nil {
 		respondWithError(w, http.StatusInternalServerError, "Failed to generate token")
 		return
@@ -208,7 +212,7 @@ func (h *Handler) VerifyOTP(w http.ResponseWriter, r *http.Request) {
 		"message": "Email verified successfully",
 		"token":   token,
 		"user": map[string]interface{}{
-			"id":    user.ID,
+			"id":    user.ID.Hex(),
 			"email": user.Email,
 			"role":  user.Role,
 		},
@@ -224,10 +228,14 @@ func (h *Handler) ResendOTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
 	// Check if user exists
-	var userID int
-	err := h.DB.QueryRow("SELECT id FROM users WHERE email = $1", req.Email).Scan(&userID)
-	if err == sql.ErrNoRows {
+	usersCollection := h.DB.Collection("users")
+	var user models.User
+	err := usersCollection.FindOne(ctx, bson.M{"email": req.Email}).Decode(&user)
+	if err == mongo.ErrNoDocuments {
 		respondWithError(w, http.StatusNotFound, "User not found")
 		return
 	} else if err != nil {
@@ -238,10 +246,17 @@ func (h *Handler) ResendOTP(w http.ResponseWriter, r *http.Request) {
 	// Generate new OTP
 	otpCode := auth.GenerateOTP()
 	expiresAt := auth.GetOTPExpiry()
-	_, err = h.DB.Exec(
-		"INSERT INTO otps (email, code, expires_at) VALUES ($1, $2, $3)",
-		req.Email, otpCode, expiresAt,
-	)
+	otp := models.OTP{
+		ID:        primitive.NewObjectID(),
+		Email:     req.Email,
+		Code:      otpCode,
+		ExpiresAt: expiresAt,
+		Used:      false,
+		CreatedAt: time.Now(),
+	}
+
+	otpsCollection := h.DB.Collection("otps")
+	_, err = otpsCollection.InsertOne(ctx, otp)
 	if err != nil {
 		respondWithError(w, http.StatusInternalServerError, "Failed to generate OTP")
 		return
@@ -253,4 +268,3 @@ func (h *Handler) ResendOTP(w http.ResponseWriter, r *http.Request) {
 		"otp":     otpCode, // Remove in production
 	})
 }
-

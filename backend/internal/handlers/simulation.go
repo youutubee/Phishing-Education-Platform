@@ -1,9 +1,13 @@
 package handlers
 
 import (
-	"database/sql"
+	"context"
 	"net/http"
 	"time"
+
+	"go.mongodb.org/mongo-driver/bson"
+	"go.mongodb.org/mongo-driver/bson/primitive"
+	"go.mongodb.org/mongo-driver/mongo"
 
 	"github.com/gorilla/mux"
 )
@@ -12,21 +16,21 @@ func (h *Handler) SimulateLanding(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	token := vars["token"]
 
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
 	// Get campaign by token
+	campaignsCollection := h.DB.Collection("campaigns")
 	var campaign struct {
-		ID            int
-		Title         string
-		LandingPageURL string
-		Status        string
-		ExpiryDate    *time.Time
+		ID             primitive.ObjectID `bson:"_id" json:"id"`
+		Title          string             `bson:"title" json:"title"`
+		LandingPageURL string             `bson:"landing_page_url" json:"landing_page_url"`
+		Status         string             `bson:"status" json:"status"`
+		ExpiryDate     *time.Time         `bson:"expiry_date,omitempty" json:"expiry_date"`
 	}
 
-	err := h.DB.QueryRow(
-		"SELECT id, title, landing_page_url, status, expiry_date FROM campaigns WHERE tracking_token = $1",
-		token,
-	).Scan(&campaign.ID, &campaign.Title, &campaign.LandingPageURL, &campaign.Status, &campaign.ExpiryDate)
-
-	if err == sql.ErrNoRows {
+	err := campaignsCollection.FindOne(ctx, bson.M{"tracking_token": token}).Decode(&campaign)
+	if err == mongo.ErrNoDocuments {
 		respondWithError(w, http.StatusNotFound, "Campaign not found")
 		return
 	} else if err != nil {
@@ -47,17 +51,22 @@ func (h *Handler) SimulateLanding(w http.ResponseWriter, r *http.Request) {
 	// Log link opened event
 	ipAddress := r.RemoteAddr
 	userAgent := r.UserAgent()
-	_, err = h.DB.Exec(
-		"INSERT INTO events (campaign_id, event_type, ip_address, user_agent) VALUES ($1, $2, $3, $4)",
-		campaign.ID, "link_opened", ipAddress, userAgent,
-	)
+	event := map[string]interface{}{
+		"campaign_id": campaign.ID,
+		"event_type":  "link_opened",
+		"ip_address":  ipAddress,
+		"user_agent":  userAgent,
+		"created_at":  time.Now(),
+	}
+	eventsCollection := h.DB.Collection("events")
+	_, err = eventsCollection.InsertOne(ctx, event)
 	if err != nil {
 		// Log error but continue
 	}
 
 	// Return landing page data
 	respondWithJSON(w, http.StatusOK, map[string]interface{}{
-		"campaign_id": campaign.ID,
+		"campaign_id": campaign.ID.Hex(),
 		"title":       campaign.Title,
 		"landing_url": campaign.LandingPageURL,
 		"token":       token,
@@ -68,15 +77,18 @@ func (h *Handler) SimulateSubmit(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	token := vars["token"]
 
-	// Get campaign by token
-	var campaignID int
-	var status string
-	err := h.DB.QueryRow(
-		"SELECT id, status FROM campaigns WHERE tracking_token = $1",
-		token,
-	).Scan(&campaignID, &status)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
 
-	if err == sql.ErrNoRows {
+	// Get campaign by token
+	campaignsCollection := h.DB.Collection("campaigns")
+	var campaign struct {
+		ID     primitive.ObjectID `bson:"_id"`
+		Status string             `bson:"status"`
+	}
+
+	err := campaignsCollection.FindOne(ctx, bson.M{"tracking_token": token}).Decode(&campaign)
+	if err == mongo.ErrNoDocuments {
 		respondWithError(w, http.StatusNotFound, "Campaign not found")
 		return
 	} else if err != nil {
@@ -84,7 +96,7 @@ func (h *Handler) SimulateSubmit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if status != "approved" {
+	if campaign.Status != "approved" {
 		respondWithError(w, http.StatusForbidden, "Campaign not approved")
 		return
 	}
@@ -92,10 +104,15 @@ func (h *Handler) SimulateSubmit(w http.ResponseWriter, r *http.Request) {
 	// Log form submission event
 	ipAddress := r.RemoteAddr
 	userAgent := r.UserAgent()
-	_, err = h.DB.Exec(
-		"INSERT INTO events (campaign_id, event_type, ip_address, user_agent) VALUES ($1, $2, $3, $4)",
-		campaignID, "form_submitted", ipAddress, userAgent,
-	)
+	event := map[string]interface{}{
+		"campaign_id": campaign.ID,
+		"event_type":  "form_submitted",
+		"ip_address":  ipAddress,
+		"user_agent":  userAgent,
+		"created_at":  time.Now(),
+	}
+	eventsCollection := h.DB.Collection("events")
+	_, err = eventsCollection.InsertOne(ctx, event)
 	if err != nil {
 		respondWithError(w, http.StatusInternalServerError, "Failed to log event")
 		return
@@ -112,14 +129,17 @@ func (h *Handler) AwarenessPage(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	token := vars["token"]
 
-	// Get campaign by token
-	var campaignID int
-	err := h.DB.QueryRow(
-		"SELECT id FROM campaigns WHERE tracking_token = $1",
-		token,
-	).Scan(&campaignID)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
 
-	if err == sql.ErrNoRows {
+	// Get campaign by token
+	campaignsCollection := h.DB.Collection("campaigns")
+	var campaign struct {
+		ID primitive.ObjectID `bson:"_id"`
+	}
+
+	err := campaignsCollection.FindOne(ctx, bson.M{"tracking_token": token}).Decode(&campaign)
+	if err == mongo.ErrNoDocuments {
 		respondWithError(w, http.StatusNotFound, "Campaign not found")
 		return
 	} else if err != nil {
@@ -130,17 +150,22 @@ func (h *Handler) AwarenessPage(w http.ResponseWriter, r *http.Request) {
 	// Log awareness page view
 	ipAddress := r.RemoteAddr
 	userAgent := r.UserAgent()
-	_, err = h.DB.Exec(
-		"INSERT INTO events (campaign_id, event_type, ip_address, user_agent) VALUES ($1, $2, $3, $4)",
-		campaignID, "awareness_viewed", ipAddress, userAgent,
-	)
+	event := map[string]interface{}{
+		"campaign_id": campaign.ID,
+		"event_type":  "awareness_viewed",
+		"ip_address":  ipAddress,
+		"user_agent":  userAgent,
+		"created_at":  time.Now(),
+	}
+	eventsCollection := h.DB.Collection("events")
+	_, err = eventsCollection.InsertOne(ctx, event)
 	if err != nil {
 		// Log error but continue
 	}
 
 	// Return awareness content
 	respondWithJSON(w, http.StatusOK, map[string]interface{}{
-		"campaign_id": campaignID,
+		"campaign_id": campaign.ID.Hex(),
 		"message":     "This was a simulated phishing attempt",
 		"content": map[string]string{
 			"title":       "You've Been Phished! (Simulated)",
@@ -149,4 +174,3 @@ func (h *Handler) AwarenessPage(w http.ResponseWriter, r *http.Request) {
 		},
 	})
 }
-

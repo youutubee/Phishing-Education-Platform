@@ -1,10 +1,15 @@
 package handlers
 
 import (
-	"database/sql"
+	"context"
 	"encoding/json"
 	"net/http"
-	"strconv"
+	"time"
+
+	"go.mongodb.org/mongo-driver/bson"
+	"go.mongodb.org/mongo-driver/bson/primitive"
+	"go.mongodb.org/mongo-driver/mongo"
+	"go.mongodb.org/mongo-driver/mongo/options"
 
 	"seap/internal/middleware"
 	"seap/internal/models"
@@ -14,7 +19,12 @@ import (
 )
 
 func (h *Handler) CreateCampaign(w http.ResponseWriter, r *http.Request) {
-	userID := r.Context().Value(middleware.UserIDKey).(int)
+	userIDStr := r.Context().Value(middleware.UserIDKey).(string)
+	userID, err := primitive.ObjectIDFromHex(userIDStr)
+	if err != nil {
+		respondWithError(w, http.StatusBadRequest, "Invalid user ID")
+		return
+	}
 
 	var req models.CampaignRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -34,29 +44,28 @@ func (h *Handler) CreateCampaign(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var campaignID int
-	err = h.DB.QueryRow(
-		`INSERT INTO campaigns (user_id, title, description, email_text, landing_page_url, tracking_token, status, expiry_date)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id`,
-		userID, req.Title, req.Description, req.EmailText, req.LandingPageURL, token, "pending", req.ExpiryDate,
-	).Scan(&campaignID)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
 
-	if err != nil {
-		respondWithError(w, http.StatusInternalServerError, "Failed to create campaign")
-		return
+	now := time.Now()
+	campaign := models.Campaign{
+		ID:             primitive.NewObjectID(),
+		UserID:         userID,
+		Title:          req.Title,
+		Description:    req.Description,
+		EmailText:      req.EmailText,
+		LandingPageURL: req.LandingPageURL,
+		TrackingToken:  token,
+		Status:         "pending",
+		ExpiryDate:     req.ExpiryDate,
+		CreatedAt:      now,
+		UpdatedAt:      now,
 	}
 
-	var campaign models.Campaign
-	err = h.DB.QueryRow(
-		`SELECT id, user_id, title, description, email_text, landing_page_url, tracking_token, status, expiry_date, admin_comment, created_at, updated_at
-		 FROM campaigns WHERE id = $1`,
-		campaignID,
-	).Scan(&campaign.ID, &campaign.UserID, &campaign.Title, &campaign.Description, &campaign.EmailText,
-		&campaign.LandingPageURL, &campaign.TrackingToken, &campaign.Status, &campaign.ExpiryDate,
-		&campaign.AdminComment, &campaign.CreatedAt, &campaign.UpdatedAt)
-
+	campaignsCollection := h.DB.Collection("campaigns")
+	_, err = campaignsCollection.InsertOne(ctx, campaign)
 	if err != nil {
-		respondWithError(w, http.StatusInternalServerError, "Failed to retrieve campaign")
+		respondWithError(w, http.StatusInternalServerError, "Failed to create campaign")
 		return
 	}
 
@@ -64,54 +73,63 @@ func (h *Handler) CreateCampaign(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) GetUserCampaigns(w http.ResponseWriter, r *http.Request) {
-	userID := r.Context().Value(middleware.UserIDKey).(int)
+	userIDStr := r.Context().Value(middleware.UserIDKey).(string)
+	userID, err := primitive.ObjectIDFromHex(userIDStr)
+	if err != nil {
+		respondWithError(w, http.StatusBadRequest, "Invalid user ID")
+		return
+	}
 
-	rows, err := h.DB.Query(
-		`SELECT id, user_id, title, description, email_text, landing_page_url, tracking_token, status, expiry_date, admin_comment, created_at, updated_at
-		 FROM campaigns WHERE user_id = $1 ORDER BY created_at DESC`,
-		userID,
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	campaignsCollection := h.DB.Collection("campaigns")
+	cursor, err := campaignsCollection.Find(
+		ctx,
+		bson.M{"user_id": userID},
+		options.Find().SetSort(bson.M{"created_at": -1}),
 	)
 	if err != nil {
 		respondWithError(w, http.StatusInternalServerError, "Database error")
 		return
 	}
-	defer rows.Close()
+	defer cursor.Close(ctx)
 
 	var campaigns []models.Campaign
-	for rows.Next() {
-		var campaign models.Campaign
-		err := rows.Scan(&campaign.ID, &campaign.UserID, &campaign.Title, &campaign.Description, &campaign.EmailText,
-			&campaign.LandingPageURL, &campaign.TrackingToken, &campaign.Status, &campaign.ExpiryDate,
-			&campaign.AdminComment, &campaign.CreatedAt, &campaign.UpdatedAt)
-		if err != nil {
-			respondWithError(w, http.StatusInternalServerError, "Failed to scan campaign")
-			return
-		}
-		campaigns = append(campaigns, campaign)
+	if err = cursor.All(ctx, &campaigns); err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Failed to retrieve campaigns")
+		return
 	}
 
 	respondWithJSON(w, http.StatusOK, campaigns)
 }
 
 func (h *Handler) GetCampaign(w http.ResponseWriter, r *http.Request) {
-	userID := r.Context().Value(middleware.UserIDKey).(int)
+	userIDStr := r.Context().Value(middleware.UserIDKey).(string)
+	userID, err := primitive.ObjectIDFromHex(userIDStr)
+	if err != nil {
+		respondWithError(w, http.StatusBadRequest, "Invalid user ID")
+		return
+	}
+
 	vars := mux.Vars(r)
-	campaignID, err := strconv.Atoi(vars["id"])
+	campaignID, err := primitive.ObjectIDFromHex(vars["id"])
 	if err != nil {
 		respondWithError(w, http.StatusBadRequest, "Invalid campaign ID")
 		return
 	}
 
-	var campaign models.Campaign
-	err = h.DB.QueryRow(
-		`SELECT id, user_id, title, description, email_text, landing_page_url, tracking_token, status, expiry_date, admin_comment, created_at, updated_at
-		 FROM campaigns WHERE id = $1 AND user_id = $2`,
-		campaignID, userID,
-	).Scan(&campaign.ID, &campaign.UserID, &campaign.Title, &campaign.Description, &campaign.EmailText,
-		&campaign.LandingPageURL, &campaign.TrackingToken, &campaign.Status, &campaign.ExpiryDate,
-		&campaign.AdminComment, &campaign.CreatedAt, &campaign.UpdatedAt)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
 
-	if err == sql.ErrNoRows {
+	campaignsCollection := h.DB.Collection("campaigns")
+	var campaign models.Campaign
+	err = campaignsCollection.FindOne(
+		ctx,
+		bson.M{"_id": campaignID, "user_id": userID},
+	).Decode(&campaign)
+
+	if err == mongo.ErrNoDocuments {
 		respondWithError(w, http.StatusNotFound, "Campaign not found")
 		return
 	} else if err != nil {
@@ -123,18 +141,28 @@ func (h *Handler) GetCampaign(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) UpdateCampaign(w http.ResponseWriter, r *http.Request) {
-	userID := r.Context().Value(middleware.UserIDKey).(int)
+	userIDStr := r.Context().Value(middleware.UserIDKey).(string)
+	userID, err := primitive.ObjectIDFromHex(userIDStr)
+	if err != nil {
+		respondWithError(w, http.StatusBadRequest, "Invalid user ID")
+		return
+	}
+
 	vars := mux.Vars(r)
-	campaignID, err := strconv.Atoi(vars["id"])
+	campaignID, err := primitive.ObjectIDFromHex(vars["id"])
 	if err != nil {
 		respondWithError(w, http.StatusBadRequest, "Invalid campaign ID")
 		return
 	}
 
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
 	// Check if campaign belongs to user
-	var ownerID int
-	err = h.DB.QueryRow("SELECT user_id FROM campaigns WHERE id = $1", campaignID).Scan(&ownerID)
-	if err == sql.ErrNoRows {
+	campaignsCollection := h.DB.Collection("campaigns")
+	var campaign models.Campaign
+	err = campaignsCollection.FindOne(ctx, bson.M{"_id": campaignID}).Decode(&campaign)
+	if err == mongo.ErrNoDocuments {
 		respondWithError(w, http.StatusNotFound, "Campaign not found")
 		return
 	} else if err != nil {
@@ -142,7 +170,7 @@ func (h *Handler) UpdateCampaign(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if ownerID != userID {
+	if campaign.UserID != userID {
 		respondWithError(w, http.StatusForbidden, "Not authorized to update this campaign")
 		return
 	}
@@ -153,10 +181,19 @@ func (h *Handler) UpdateCampaign(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	_, err = h.DB.Exec(
-		`UPDATE campaigns SET title = $1, description = $2, email_text = $3, landing_page_url = $4, expiry_date = $5, updated_at = CURRENT_TIMESTAMP
-		 WHERE id = $6`,
-		req.Title, req.Description, req.EmailText, req.LandingPageURL, req.ExpiryDate, campaignID,
+	updateFields := bson.M{
+		"title":            req.Title,
+		"description":      req.Description,
+		"email_text":       req.EmailText,
+		"landing_page_url": req.LandingPageURL,
+		"expiry_date":      req.ExpiryDate,
+		"updated_at":       time.Now(),
+	}
+
+	_, err = campaignsCollection.UpdateOne(
+		ctx,
+		bson.M{"_id": campaignID},
+		bson.M{"$set": updateFields},
 	)
 	if err != nil {
 		respondWithError(w, http.StatusInternalServerError, "Failed to update campaign")
@@ -167,18 +204,28 @@ func (h *Handler) UpdateCampaign(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) DeleteCampaign(w http.ResponseWriter, r *http.Request) {
-	userID := r.Context().Value(middleware.UserIDKey).(int)
+	userIDStr := r.Context().Value(middleware.UserIDKey).(string)
+	userID, err := primitive.ObjectIDFromHex(userIDStr)
+	if err != nil {
+		respondWithError(w, http.StatusBadRequest, "Invalid user ID")
+		return
+	}
+
 	vars := mux.Vars(r)
-	campaignID, err := strconv.Atoi(vars["id"])
+	campaignID, err := primitive.ObjectIDFromHex(vars["id"])
 	if err != nil {
 		respondWithError(w, http.StatusBadRequest, "Invalid campaign ID")
 		return
 	}
 
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
 	// Check if campaign belongs to user
-	var ownerID int
-	err = h.DB.QueryRow("SELECT user_id FROM campaigns WHERE id = $1", campaignID).Scan(&ownerID)
-	if err == sql.ErrNoRows {
+	campaignsCollection := h.DB.Collection("campaigns")
+	var campaign models.Campaign
+	err = campaignsCollection.FindOne(ctx, bson.M{"_id": campaignID}).Decode(&campaign)
+	if err == mongo.ErrNoDocuments {
 		respondWithError(w, http.StatusNotFound, "Campaign not found")
 		return
 	} else if err != nil {
@@ -186,12 +233,12 @@ func (h *Handler) DeleteCampaign(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if ownerID != userID {
+	if campaign.UserID != userID {
 		respondWithError(w, http.StatusForbidden, "Not authorized to delete this campaign")
 		return
 	}
 
-	_, err = h.DB.Exec("DELETE FROM campaigns WHERE id = $1", campaignID)
+	_, err = campaignsCollection.DeleteOne(ctx, bson.M{"_id": campaignID})
 	if err != nil {
 		respondWithError(w, http.StatusInternalServerError, "Failed to delete campaign")
 		return
@@ -201,41 +248,64 @@ func (h *Handler) DeleteCampaign(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) GetAllCampaigns(w http.ResponseWriter, r *http.Request) {
-	rows, err := h.DB.Query(
-		`SELECT c.id, c.user_id, c.title, c.description, c.email_text, c.landing_page_url, c.tracking_token, c.status, c.expiry_date, c.admin_comment, c.created_at, c.updated_at, u.email
-		 FROM campaigns c JOIN users u ON c.user_id = u.id ORDER BY c.created_at DESC`,
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	campaignsCollection := h.DB.Collection("campaigns")
+	cursor, err := campaignsCollection.Find(
+		ctx,
+		bson.M{},
+		options.Find().SetSort(bson.M{"created_at": -1}),
 	)
 	if err != nil {
 		respondWithError(w, http.StatusInternalServerError, "Database error")
 		return
 	}
-	defer rows.Close()
+	defer cursor.Close(ctx)
 
+	var campaigns []models.Campaign
+	if err = cursor.All(ctx, &campaigns); err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Failed to retrieve campaigns")
+		return
+	}
+
+	// Get user emails
+	usersCollection := h.DB.Collection("users")
 	type CampaignWithUser struct {
 		models.Campaign
 		UserEmail string `json:"user_email"`
 	}
 
-	var campaigns []CampaignWithUser
-	for rows.Next() {
-		var campaign CampaignWithUser
-		err := rows.Scan(&campaign.ID, &campaign.UserID, &campaign.Title, &campaign.Description, &campaign.EmailText,
-			&campaign.LandingPageURL, &campaign.TrackingToken, &campaign.Status, &campaign.ExpiryDate,
-			&campaign.AdminComment, &campaign.CreatedAt, &campaign.UpdatedAt, &campaign.UserEmail)
-		if err != nil {
-			respondWithError(w, http.StatusInternalServerError, "Failed to scan campaign")
-			return
+	var campaignsWithUser []CampaignWithUser
+	for _, campaign := range campaigns {
+		var user models.User
+		err := usersCollection.FindOne(ctx, bson.M{"_id": campaign.UserID}).Decode(&user)
+		if err == nil {
+			campaignsWithUser = append(campaignsWithUser, CampaignWithUser{
+				Campaign:  campaign,
+				UserEmail: user.Email,
+			})
+		} else {
+			campaignsWithUser = append(campaignsWithUser, CampaignWithUser{
+				Campaign:  campaign,
+				UserEmail: "",
+			})
 		}
-		campaigns = append(campaigns, campaign)
 	}
 
-	respondWithJSON(w, http.StatusOK, campaigns)
+	respondWithJSON(w, http.StatusOK, campaignsWithUser)
 }
 
 func (h *Handler) ApproveCampaign(w http.ResponseWriter, r *http.Request) {
-	adminID := r.Context().Value(middleware.UserIDKey).(int)
+	adminIDStr := r.Context().Value(middleware.UserIDKey).(string)
+	adminID, err := primitive.ObjectIDFromHex(adminIDStr)
+	if err != nil {
+		respondWithError(w, http.StatusBadRequest, "Invalid admin ID")
+		return
+	}
+
 	vars := mux.Vars(r)
-	campaignID, err := strconv.Atoi(vars["id"])
+	campaignID, err := primitive.ObjectIDFromHex(vars["id"])
 	if err != nil {
 		respondWithError(w, http.StatusBadRequest, "Invalid campaign ID")
 		return
@@ -244,10 +314,19 @@ func (h *Handler) ApproveCampaign(w http.ResponseWriter, r *http.Request) {
 	var req models.CampaignApprovalRequest
 	json.NewDecoder(r.Body).Decode(&req)
 
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
 	// Update campaign status
-	_, err = h.DB.Exec(
-		"UPDATE campaigns SET status = 'approved', admin_comment = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2",
-		req.Comment, campaignID,
+	campaignsCollection := h.DB.Collection("campaigns")
+	_, err = campaignsCollection.UpdateOne(
+		ctx,
+		bson.M{"_id": campaignID},
+		bson.M{"$set": bson.M{
+			"status":        "approved",
+			"admin_comment": req.Comment,
+			"updated_at":    time.Now(),
+		}},
 	)
 	if err != nil {
 		respondWithError(w, http.StatusInternalServerError, "Failed to approve campaign")
@@ -256,10 +335,17 @@ func (h *Handler) ApproveCampaign(w http.ResponseWriter, r *http.Request) {
 
 	// Log audit
 	details := `{"comment": "` + req.Comment + `"}`
-	_, err = h.DB.Exec(
-		"INSERT INTO audit_logs (admin_id, action, resource_type, resource_id, details) VALUES ($1, $2, $3, $4, $5)",
-		adminID, "approve_campaign", "campaign", campaignID, details,
-	)
+	auditLog := models.AuditLog{
+		ID:           primitive.NewObjectID(),
+		AdminID:      adminID,
+		Action:       "approve_campaign",
+		ResourceType: "campaign",
+		ResourceID:   &campaignID,
+		Details:      details,
+		CreatedAt:    time.Now(),
+	}
+	auditLogsCollection := h.DB.Collection("audit_logs")
+	_, err = auditLogsCollection.InsertOne(ctx, auditLog)
 	if err != nil {
 		// Log error but don't fail the request
 	}
@@ -268,9 +354,15 @@ func (h *Handler) ApproveCampaign(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) RejectCampaign(w http.ResponseWriter, r *http.Request) {
-	adminID := r.Context().Value(middleware.UserIDKey).(int)
+	adminIDStr := r.Context().Value(middleware.UserIDKey).(string)
+	adminID, err := primitive.ObjectIDFromHex(adminIDStr)
+	if err != nil {
+		respondWithError(w, http.StatusBadRequest, "Invalid admin ID")
+		return
+	}
+
 	vars := mux.Vars(r)
-	campaignID, err := strconv.Atoi(vars["id"])
+	campaignID, err := primitive.ObjectIDFromHex(vars["id"])
 	if err != nil {
 		respondWithError(w, http.StatusBadRequest, "Invalid campaign ID")
 		return
@@ -284,10 +376,19 @@ func (h *Handler) RejectCampaign(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
 	// Update campaign status
-	_, err = h.DB.Exec(
-		"UPDATE campaigns SET status = 'rejected', admin_comment = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2",
-		req.Comment, campaignID,
+	campaignsCollection := h.DB.Collection("campaigns")
+	_, err = campaignsCollection.UpdateOne(
+		ctx,
+		bson.M{"_id": campaignID},
+		bson.M{"$set": bson.M{
+			"status":        "rejected",
+			"admin_comment": req.Comment,
+			"updated_at":    time.Now(),
+		}},
 	)
 	if err != nil {
 		respondWithError(w, http.StatusInternalServerError, "Failed to reject campaign")
@@ -296,10 +397,17 @@ func (h *Handler) RejectCampaign(w http.ResponseWriter, r *http.Request) {
 
 	// Log audit
 	details := `{"comment": "` + req.Comment + `"}`
-	_, err = h.DB.Exec(
-		"INSERT INTO audit_logs (admin_id, action, resource_type, resource_id, details) VALUES ($1, $2, $3, $4, $5)",
-		adminID, "reject_campaign", "campaign", campaignID, details,
-	)
+	auditLog := models.AuditLog{
+		ID:           primitive.NewObjectID(),
+		AdminID:      adminID,
+		Action:       "reject_campaign",
+		ResourceType: "campaign",
+		ResourceID:   &campaignID,
+		Details:      details,
+		CreatedAt:    time.Now(),
+	}
+	auditLogsCollection := h.DB.Collection("audit_logs")
+	_, err = auditLogsCollection.InsertOne(ctx, auditLog)
 	if err != nil {
 		// Log error but don't fail the request
 	}

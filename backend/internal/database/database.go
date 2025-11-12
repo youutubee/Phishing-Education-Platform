@@ -1,126 +1,140 @@
 package database
 
 import (
-	"database/sql"
+	"context"
 	"fmt"
 	"log"
 	"os"
+	"time"
 
-	_ "github.com/lib/pq"
+	"go.mongodb.org/mongo-driver/bson"
+	"go.mongodb.org/mongo-driver/mongo"
+	"go.mongodb.org/mongo-driver/mongo/options"
 )
 
-func InitDB() (*sql.DB, error) {
-	host := os.Getenv("DB_HOST")
-	if host == "" {
-		host = "localhost"
-	}
-	port := os.Getenv("DB_PORT")
-	if port == "" {
-		port = "5432"
-	}
-	user := os.Getenv("DB_USER")
-	if user == "" {
-		user = "postgres"
-	}
-	password := os.Getenv("DB_PASSWORD")
-	if password == "" {
-		password = "postgres"
-	}
-	dbname := os.Getenv("DB_NAME")
-	if dbname == "" {
-		dbname = "seap"
+var Client *mongo.Client
+var DB *mongo.Database
+
+func InitDB() (*mongo.Client, *mongo.Database, error) {
+	mongoURL := os.Getenv("MONGODB_URL")
+	if mongoURL == "" {
+		mongoURL = "mongodb://localhost:27017"
 	}
 
-	dsn := fmt.Sprintf("host=%s port=%s user=%s password=%s dbname=%s sslmode=disable",
-		host, port, user, password, dbname)
+	dbName := os.Getenv("DB_NAME")
+	if dbName == "" {
+		dbName = "seap"
+	}
 
-	db, err := sql.Open("postgres", dsn)
+	// Use a longer timeout for initial connection (especially for Atlas)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	// Configure client options with proper settings for Atlas
+	clientOptions := options.Client().ApplyURI(mongoURL)
+
+	// Set server selection timeout
+	clientOptions.SetServerSelectionTimeout(30 * time.Second)
+
+	// Set connect timeout
+	clientOptions.SetConnectTimeout(30 * time.Second)
+
+	// For Atlas connections, ensure TLS is enabled (it should be in the connection string)
+	// If the connection string starts with mongodb+srv://, TLS is automatically enabled
+
+	client, err := mongo.Connect(ctx, clientOptions)
 	if err != nil {
-		return nil, err
+		return nil, nil, fmt.Errorf("failed to connect to MongoDB: %w", err)
 	}
 
-	if err := db.Ping(); err != nil {
-		return nil, err
+	// Ping the database with a separate context
+	pingCtx, pingCancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer pingCancel()
+
+	if err := client.Ping(pingCtx, nil); err != nil {
+		client.Disconnect(context.Background())
+		return nil, nil, fmt.Errorf("failed to ping MongoDB: %w", err)
 	}
 
 	log.Println("Database connected successfully")
-	return db, nil
+
+	Client = client
+	DB = client.Database(dbName)
+
+	// Create indexes
+	if err := createIndexes(DB); err != nil {
+		log.Printf("Warning: Failed to create indexes: %v", err)
+	}
+
+	return client, DB, nil
 }
 
-func RunMigrations(db *sql.DB) error {
-	migrations := []string{
-		createUsersTable,
-		createCampaignsTable,
-		createEventsTable,
-		createAuditLogsTable,
-		createOTPsTable,
+func createIndexes(db *mongo.Database) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	// Users collection indexes
+	usersCollection := db.Collection("users")
+	_, err := usersCollection.Indexes().CreateOne(ctx, mongo.IndexModel{
+		Keys:    map[string]interface{}{"email": 1},
+		Options: options.Index().SetUnique(true),
+	})
+	if err != nil {
+		return fmt.Errorf("failed to create users email index: %w", err)
 	}
 
-	for _, migration := range migrations {
-		if _, err := db.Exec(migration); err != nil {
-			return fmt.Errorf("migration failed: %w", err)
-		}
+	// Campaigns collection indexes
+	campaignsCollection := db.Collection("campaigns")
+	_, err = campaignsCollection.Indexes().CreateOne(ctx, mongo.IndexModel{
+		Keys:    map[string]interface{}{"tracking_token": 1},
+		Options: options.Index().SetUnique(true),
+	})
+	if err != nil {
+		return fmt.Errorf("failed to create campaigns tracking_token index: %w", err)
+	}
+	_, err = campaignsCollection.Indexes().CreateOne(ctx, mongo.IndexModel{
+		Keys: map[string]interface{}{"user_id": 1},
+	})
+	if err != nil {
+		return fmt.Errorf("failed to create campaigns user_id index: %w", err)
 	}
 
-	log.Println("Migrations completed successfully")
+	// Events collection indexes
+	eventsCollection := db.Collection("events")
+	_, err = eventsCollection.Indexes().CreateOne(ctx, mongo.IndexModel{
+		Keys: map[string]interface{}{"campaign_id": 1},
+	})
+	if err != nil {
+		return fmt.Errorf("failed to create events campaign_id index: %w", err)
+	}
+	_, err = eventsCollection.Indexes().CreateOne(ctx, mongo.IndexModel{
+		Keys: map[string]interface{}{"created_at": -1},
+	})
+	if err != nil {
+		return fmt.Errorf("failed to create events created_at index: %w", err)
+	}
+
+	// OTPs collection indexes
+	otpsCollection := db.Collection("otps")
+	_, err = otpsCollection.Indexes().CreateOne(ctx, mongo.IndexModel{
+		Keys: bson.D{
+			{Key: "email", Value: 1},
+			{Key: "created_at", Value: -1},
+		},
+	})
+	if err != nil {
+		return fmt.Errorf("failed to create otps index: %w", err)
+	}
+
+	// Audit logs collection indexes
+	auditLogsCollection := db.Collection("audit_logs")
+	_, err = auditLogsCollection.Indexes().CreateOne(ctx, mongo.IndexModel{
+		Keys: map[string]interface{}{"created_at": -1},
+	})
+	if err != nil {
+		return fmt.Errorf("failed to create audit_logs created_at index: %w", err)
+	}
+
+	log.Println("Indexes created successfully")
 	return nil
 }
-
-const createUsersTable = `
-CREATE TABLE IF NOT EXISTS users (
-    id SERIAL PRIMARY KEY,
-    email VARCHAR(255) UNIQUE NOT NULL,
-    password_hash VARCHAR(255) NOT NULL,
-    role VARCHAR(20) NOT NULL DEFAULT 'user',
-    email_verified BOOLEAN DEFAULT FALSE,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);`
-
-const createCampaignsTable = `
-CREATE TABLE IF NOT EXISTS campaigns (
-    id SERIAL PRIMARY KEY,
-    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    title VARCHAR(255) NOT NULL,
-    description TEXT,
-    email_text TEXT NOT NULL,
-    landing_page_url TEXT,
-    tracking_token VARCHAR(255) UNIQUE NOT NULL,
-    status VARCHAR(20) NOT NULL DEFAULT 'pending',
-    expiry_date TIMESTAMP,
-    admin_comment TEXT,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);`
-
-const createEventsTable = `
-CREATE TABLE IF NOT EXISTS events (
-    id SERIAL PRIMARY KEY,
-    campaign_id INTEGER NOT NULL REFERENCES campaigns(id) ON DELETE CASCADE,
-    event_type VARCHAR(50) NOT NULL,
-    ip_address VARCHAR(45),
-    user_agent TEXT,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);`
-
-const createAuditLogsTable = `
-CREATE TABLE IF NOT EXISTS audit_logs (
-    id SERIAL PRIMARY KEY,
-    admin_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    action VARCHAR(100) NOT NULL,
-    resource_type VARCHAR(50) NOT NULL,
-    resource_id INTEGER,
-    details JSONB,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);`
-
-const createOTPsTable = `
-CREATE TABLE IF NOT EXISTS otps (
-    id SERIAL PRIMARY KEY,
-    email VARCHAR(255) NOT NULL,
-    code VARCHAR(6) NOT NULL,
-    expires_at TIMESTAMP NOT NULL,
-    used BOOLEAN DEFAULT FALSE,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);`
-

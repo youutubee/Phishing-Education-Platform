@@ -51,7 +51,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
               </div>
             </div>
             <div className="flex items-center">
-              <span className="text-sm text-gray-700 mr-4">{user ? `${user.email} (${user.role})` : ''}</span>
+              <span className="text-sm text-black mr-4">{user ? `${user.email} (${user.role})` : ''}</span>
               <button
                 onClick={handleLogout}
                 className="bg-primary-600 text-white px-4 py-2 rounded-lg hover:bg-primary-700 transition-colors text-sm"

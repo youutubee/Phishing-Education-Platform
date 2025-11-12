@@ -4,7 +4,7 @@ import { createContext, useContext, useEffect, useState, ReactNode } from 'react
 import api from './api'
 
 interface User {
-  id: number
+  id: string  // MongoDB ObjectID is returned as string
   email: string
   role: string
 }
@@ -50,6 +50,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const register = async (email: string, password: string, role: string = 'user') => {
     const response = await api.post('/api/auth/register', { email, password, role })
+    if (response.data.token) {
+      localStorage.setItem('token', response.data.token)
+      localStorage.setItem('user', JSON.stringify(response.data.user))
+      setUser(response.data.user)
+    }
     return response.data
   }
 

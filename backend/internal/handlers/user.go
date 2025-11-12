@@ -1,29 +1,39 @@
 package handlers
 
 import (
-	"database/sql"
+	"context"
 	"encoding/json"
 	"net/http"
+	"time"
+
+	"go.mongodb.org/mongo-driver/bson"
+	"go.mongodb.org/mongo-driver/bson/primitive"
+	"go.mongodb.org/mongo-driver/mongo"
 
 	"seap/internal/auth"
 	"seap/internal/middleware"
 )
 
 func (h *Handler) GetProfile(w http.ResponseWriter, r *http.Request) {
-	userID := r.Context().Value(middleware.UserIDKey).(int)
-
-	var user struct {
-		ID    int    `json:"id"`
-		Email string `json:"email"`
-		Role  string `json:"role"`
+	userIDStr := r.Context().Value(middleware.UserIDKey).(string)
+	userID, err := primitive.ObjectIDFromHex(userIDStr)
+	if err != nil {
+		respondWithError(w, http.StatusBadRequest, "Invalid user ID")
+		return
 	}
 
-	err := h.DB.QueryRow(
-		"SELECT id, email, role FROM users WHERE id = $1",
-		userID,
-	).Scan(&user.ID, &user.Email, &user.Role)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
 
-	if err == sql.ErrNoRows {
+	usersCollection := h.DB.Collection("users")
+	var user struct {
+		ID    primitive.ObjectID `bson:"_id" json:"id"`
+		Email string             `bson:"email" json:"email"`
+		Role  string             `bson:"role" json:"role"`
+	}
+
+	err = usersCollection.FindOne(ctx, bson.M{"_id": userID}).Decode(&user)
+	if err == mongo.ErrNoDocuments {
 		respondWithError(w, http.StatusNotFound, "User not found")
 		return
 	} else if err != nil {
@@ -31,11 +41,20 @@ func (h *Handler) GetProfile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	respondWithJSON(w, http.StatusOK, user)
+	respondWithJSON(w, http.StatusOK, map[string]interface{}{
+		"id":    user.ID.Hex(),
+		"email": user.Email,
+		"role":  user.Role,
+	})
 }
 
 func (h *Handler) UpdateProfile(w http.ResponseWriter, r *http.Request) {
-	userID := r.Context().Value(middleware.UserIDKey).(int)
+	userIDStr := r.Context().Value(middleware.UserIDKey).(string)
+	userID, err := primitive.ObjectIDFromHex(userIDStr)
+	if err != nil {
+		respondWithError(w, http.StatusBadRequest, "Invalid user ID")
+		return
+	}
 
 	var req struct {
 		Email    string `json:"email"`
@@ -47,23 +66,27 @@ func (h *Handler) UpdateProfile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	usersCollection := h.DB.Collection("users")
+	updateFields := bson.M{"updated_at": time.Now()}
+
 	if req.Email != "" {
 		// Check if email already exists
-		var existingID int
-		err := h.DB.QueryRow("SELECT id FROM users WHERE email = $1 AND id != $2", req.Email, userID).Scan(&existingID)
+		var existingUser struct {
+			ID primitive.ObjectID `bson:"_id"`
+		}
+		err := usersCollection.FindOne(ctx, bson.M{"email": req.Email, "_id": bson.M{"$ne": userID}}).Decode(&existingUser)
 		if err == nil {
 			respondWithError(w, http.StatusConflict, "Email already in use")
 			return
-		} else if err != sql.ErrNoRows {
+		} else if err != mongo.ErrNoDocuments {
 			respondWithError(w, http.StatusInternalServerError, "Database error")
 			return
 		}
 
-		_, err = h.DB.Exec("UPDATE users SET email = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2", req.Email, userID)
-		if err != nil {
-			respondWithError(w, http.StatusInternalServerError, "Failed to update email")
-			return
-		}
+		updateFields["email"] = req.Email
 	}
 
 	if req.Password != "" {
@@ -72,14 +95,18 @@ func (h *Handler) UpdateProfile(w http.ResponseWriter, r *http.Request) {
 			respondWithError(w, http.StatusInternalServerError, "Failed to hash password")
 			return
 		}
+		updateFields["password_hash"] = hashedPassword
+	}
 
-		_, err = h.DB.Exec("UPDATE users SET password_hash = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2", hashedPassword, userID)
-		if err != nil {
-			respondWithError(w, http.StatusInternalServerError, "Failed to update password")
-			return
-		}
+	_, err = usersCollection.UpdateOne(
+		ctx,
+		bson.M{"_id": userID},
+		bson.M{"$set": updateFields},
+	)
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Failed to update profile")
+		return
 	}
 
 	respondWithJSON(w, http.StatusOK, map[string]string{"message": "Profile updated successfully"})
 }
-

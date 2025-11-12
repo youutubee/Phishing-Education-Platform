@@ -160,7 +160,7 @@ export default function AnalyticsPage() {
               <tbody className="bg-white divide-y divide-gray-200">
                 {data.campaigns?.map((campaign: any) => (
                   <tr key={campaign.id}>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">{campaign.title}</td>
+                    <td className="px-6 py-4 whitespace-nowrap text-black text-sm font-medium">{campaign.title}</td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm">
                       <span className={`px-2 py-1 rounded ${
                         campaign.status === 'approved' ? 'bg-green-100 text-green-800' :
@@ -170,9 +170,9 @@ export default function AnalyticsPage() {
                         {campaign.status}
                       </span>
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm">{campaign.clicks}</td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm">{campaign.submissions}</td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm">{campaign.awareness_views}</td>
+                    <td className="px-6 py-4 whitespace-nowrap text-black text-sm">{campaign.clicks}</td>
+                    <td className="px-6 py-4 whitespace-nowrap text-black text-sm">{campaign.submissions}</td>
+                    <td className="px-6 py-4 whitespace-nowrap text-black text-sm">{campaign.awareness_views}</td>
                   </tr>
                 ))}
               </tbody>
