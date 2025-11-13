@@ -549,9 +549,15 @@ func (h *Handler) ShareCampaign(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Send email asynchronously but log errors
+	// Use the campaign's email_text as the email content
+	emailContent := campaign.EmailText
+	if emailContent == "" {
+		emailContent = "Please click the link below to access the simulation."
+	}
+
 	emailSent := make(chan error, 1)
 	go func() {
-		err := utils.SendCampaignShareEmail(req.Email, campaign.Title, simulationLink)
+		err := utils.SendCampaignShareEmail(req.Email, campaign.Title, emailContent, simulationLink)
 		emailSent <- err
 		if err != nil {
 			log.Printf("ERROR: Failed to send campaign share email to %s: %v", req.Email, err)
