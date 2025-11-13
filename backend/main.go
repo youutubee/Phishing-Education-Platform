@@ -70,6 +70,7 @@ func main() {
 	api.HandleFunc("/user/campaigns/{id}", h.GetCampaign).Methods("GET")
 	api.HandleFunc("/user/campaigns/{id}", h.UpdateCampaign).Methods("PUT")
 	api.HandleFunc("/user/campaigns/{id}", h.DeleteCampaign).Methods("DELETE")
+	api.HandleFunc("/user/campaigns/{id}/share", h.ShareCampaign).Methods("POST")
 	api.HandleFunc("/user/analytics", h.GetUserAnalytics).Methods("GET")
 	api.HandleFunc("/leaderboard", h.GetLeaderboard).Methods("GET")
 

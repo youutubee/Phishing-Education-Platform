@@ -475,3 +475,75 @@ func (h *Handler) RejectCampaign(w http.ResponseWriter, r *http.Request) {
 
 	respondWithJSON(w, http.StatusOK, map[string]string{"message": "Campaign rejected successfully"})
 }
+
+type ShareCampaignRequest struct {
+	Email string `json:"email"`
+}
+
+func (h *Handler) ShareCampaign(w http.ResponseWriter, r *http.Request) {
+	userIDStr := r.Context().Value(middleware.UserIDKey).(string)
+	userID, err := primitive.ObjectIDFromHex(userIDStr)
+	if err != nil {
+		respondWithError(w, http.StatusBadRequest, "Invalid user ID")
+		return
+	}
+
+	vars := mux.Vars(r)
+	campaignID, err := primitive.ObjectIDFromHex(vars["id"])
+	if err != nil {
+		respondWithError(w, http.StatusBadRequest, "Invalid campaign ID")
+		return
+	}
+
+	var req ShareCampaignRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		respondWithError(w, http.StatusBadRequest, "Invalid request body")
+		return
+	}
+
+	if req.Email == "" {
+		respondWithError(w, http.StatusBadRequest, "Email address is required")
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	// Check if campaign belongs to user
+	campaignsCollection := h.DB.Collection("campaigns")
+	var campaign models.Campaign
+	err = campaignsCollection.FindOne(ctx, bson.M{"_id": campaignID, "user_id": userID}).Decode(&campaign)
+	if err == mongo.ErrNoDocuments {
+		respondWithError(w, http.StatusNotFound, "Campaign not found")
+		return
+	} else if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Database error")
+		return
+	}
+
+	if campaign.Status != "approved" {
+		respondWithError(w, http.StatusBadRequest, "Only approved campaigns can be shared")
+		return
+	}
+
+	// Generate simulation link
+	frontendURL := strings.TrimSuffix(os.Getenv("APP_BASE_URL"), "/")
+	if frontendURL == "" {
+		frontendURL = "http://localhost:3000"
+	}
+	simulationLink := frontendURL + "/simulate/" + campaign.TrackingToken
+
+	// Send email asynchronously
+	go func() {
+		if err := utils.SendCampaignShareEmail(req.Email, campaign.Title, simulationLink); err != nil {
+			log.Printf("ERROR: Failed to send campaign share email to %s: %v", req.Email, err)
+		} else {
+			log.Printf("Successfully sent campaign share email to %s for campaign: %s", req.Email, campaign.Title)
+		}
+	}()
+
+	respondWithJSON(w, http.StatusOK, map[string]string{
+		"message": "Campaign link sent successfully",
+		"email":   req.Email,
+	})
+}

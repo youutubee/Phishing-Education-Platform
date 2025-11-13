@@ -23,6 +23,10 @@ export default function CampaignsPage() {
   const router = useRouter()
   const [campaigns, setCampaigns] = useState<Campaign[]>([])
   const [loading, setLoading] = useState(true)
+  const [shareModalOpen, setShareModalOpen] = useState(false)
+  const [selectedCampaign, setSelectedCampaign] = useState<Campaign | null>(null)
+  const [shareEmail, setShareEmail] = useState('')
+  const [sharing, setSharing] = useState(false)
 
   useEffect(() => {
     if (!authLoading && !user) {
@@ -56,6 +60,32 @@ export default function CampaignsPage() {
       fetchCampaigns()
     } catch (error) {
       toast.error('Failed to delete campaign')
+    }
+  }
+
+  const handleShareClick = (campaign: Campaign) => {
+    setSelectedCampaign(campaign)
+    setShareEmail('')
+    setShareModalOpen(true)
+  }
+
+  const handleShareSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!selectedCampaign || !shareEmail) return
+
+    setSharing(true)
+    try {
+      await api.post(`/api/user/campaigns/${selectedCampaign.id}/share`, {
+        email: shareEmail,
+      })
+      toast.success(`Campaign link sent to ${shareEmail}`)
+      setShareModalOpen(false)
+      setShareEmail('')
+      setSelectedCampaign(null)
+    } catch (error: any) {
+      toast.error(error.response?.data?.error || 'Failed to send campaign link')
+    } finally {
+      setSharing(false)
     }
   }
 
@@ -146,6 +176,12 @@ export default function CampaignsPage() {
                           >
                             Copy
                           </button>
+                          <button
+                            onClick={() => handleShareClick(campaign)}
+                            className="bg-green-600 text-white px-3 py-1 rounded text-sm hover:bg-green-700 transition-colors"
+                          >
+                            Share
+                          </button>
                         </div>
                       </div>
                     )}
@@ -167,6 +203,58 @@ export default function CampaignsPage() {
                 </div>
               </div>
             ))}
+          </div>
+        )}
+
+        {/* Share Modal */}
+        {shareModalOpen && selectedCampaign && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+            <div className="bg-white rounded-lg shadow-xl p-6 max-w-md w-full mx-4">
+              <h2 className="text-2xl font-bold text-gray-900 mb-4">Share Campaign</h2>
+              <p className="text-sm text-gray-600 mb-4">
+                Send the campaign link to someone via email. They will receive an email with a link to access the simulation.
+              </p>
+              <form onSubmit={handleShareSubmit}>
+                <div className="mb-4">
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Recipient Email Address
+                  </label>
+                  <input
+                    type="email"
+                    value={shareEmail}
+                    onChange={(e) => setShareEmail(e.target.value)}
+                    required
+                    placeholder="recipient@example.com"
+                    className="w-full px-4 py-2 border border-gray-300 text-black rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                  />
+                </div>
+                <div className="mb-4">
+                  <p className="text-sm text-gray-600">
+                    <strong>Campaign:</strong> {selectedCampaign.title}
+                  </p>
+                </div>
+                <div className="flex gap-3">
+                  <button
+                    type="submit"
+                    disabled={sharing}
+                    className="flex-1 bg-primary-600 text-white px-4 py-2 rounded-lg hover:bg-primary-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {sharing ? 'Sending...' : 'Send Link'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShareModalOpen(false)
+                      setShareEmail('')
+                      setSelectedCampaign(null)
+                    }}
+                    className="flex-1 bg-gray-200 text-gray-800 px-4 py-2 rounded-lg hover:bg-gray-300 transition-colors"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </form>
+            </div>
           </div>
         )}
       </div>

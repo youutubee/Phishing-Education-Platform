@@ -101,3 +101,24 @@ func SendCampaignDecisionEmail(to, campaignTitle, status, comment, simulationLin
 		log.Printf("Successfully sent campaign %s notification email to %s", status, to)
 	}
 }
+
+// SendCampaignShareEmail sends a campaign link to a recipient via email
+func SendCampaignShareEmail(to, campaignTitle, simulationLink string) error {
+	subject := fmt.Sprintf("Phishing Awareness Campaign: %s", campaignTitle)
+
+	var builder strings.Builder
+	builder.WriteString("<div style=\"font-family: Arial, sans-serif; font-size: 14px; color: #111; padding: 20px;\">")
+	builder.WriteString(fmt.Sprintf("<h2 style=\"color: #2563eb;\">Phishing Awareness Campaign</h2>"))
+	builder.WriteString(fmt.Sprintf("<p>Hello,</p>"))
+	builder.WriteString(fmt.Sprintf("<p>You have been invited to participate in a <strong>simulated phishing awareness campaign</strong>: <strong>%s</strong>.</p>", campaignTitle))
+	builder.WriteString("<p>This is a safe, educational simulation designed to help you recognize phishing attempts and protect yourself from real threats.</p>")
+	builder.WriteString("<p><strong>Click the link below to access the simulation:</strong></p>")
+	builder.WriteString(fmt.Sprintf("<p style=\"margin: 20px 0;\"><a href=\"%s\" style=\"background-color: #2563eb; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; display: inline-block;\">Access Campaign</a></p>", simulationLink))
+	builder.WriteString(fmt.Sprintf("<p style=\"color: #6b7280; font-size: 12px; margin-top: 20px;\">Or copy this link: <br/><code style=\"background: #f3f4f6; padding: 4px 8px; border-radius: 4px;\">%s</code></p>", simulationLink))
+	builder.WriteString("<hr style=\"margin: 20px 0; border: none; border-top: 1px solid #e5e7eb;\">")
+	builder.WriteString("<p style=\"color: #6b7280; font-size: 12px;\"><strong>Note:</strong> This is a simulated phishing attempt for educational purposes. No real data will be collected or stored.</p>")
+	builder.WriteString("<p style=\"color: #6b7280; font-size: 12px;\">Thank you for participating in this security awareness training.</p>")
+	builder.WriteString("</div>")
+
+	return sendEmail(to, subject, builder.String())
+}
