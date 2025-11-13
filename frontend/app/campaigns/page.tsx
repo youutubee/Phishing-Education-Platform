@@ -43,9 +43,10 @@ export default function CampaignsPage() {
   const fetchCampaigns = async () => {
     try {
       const response = await api.get('/api/user/campaigns')
-      setCampaigns(response.data)
+      setCampaigns(response.data || [])
     } catch (error) {
       toast.error('Failed to fetch campaigns')
+      setCampaigns([]) // Ensure campaigns is always an array
     } finally {
       setLoading(false)
     }
@@ -123,7 +124,7 @@ export default function CampaignsPage() {
           </Link>
         </div>
 
-        {campaigns.length === 0 ? (
+        {!campaigns || campaigns.length === 0 ? (
           <div className="bg-white text-black rounded-lg shadow p-12 text-center">
             <p className="text-black mb-4">No campaigns yet</p>
             <Link
@@ -135,7 +136,7 @@ export default function CampaignsPage() {
           </div>
         ) : (
           <div className="grid grid-cols-1 gap-4">
-            {campaigns.map((campaign) => (
+            {campaigns && campaigns.map((campaign) => (
               <div key={campaign.id} className="bg-white text-black rounded-lg shadow p-6">
                 <div className="flex justify-between items-start">
                   <div className="flex-1">

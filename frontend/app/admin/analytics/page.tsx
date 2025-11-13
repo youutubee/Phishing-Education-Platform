@@ -36,6 +36,7 @@ export default function AdminAnalyticsPage() {
   const router = useRouter()
   const [data, setData] = useState<any>(null)
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
     if (!authLoading && (!user || user.role !== 'admin')) {
@@ -51,20 +52,53 @@ export default function AdminAnalyticsPage() {
 
   const fetchAnalytics = async () => {
     try {
+      setError(null)
       const response = await api.get('/api/admin/analytics')
       setData(response.data)
-    } catch (error) {
+    } catch (error: any) {
       console.error('Failed to fetch analytics:', error)
+      setError(error.response?.data?.error || 'Failed to load analytics data')
     } finally {
       setLoading(false)
     }
   }
 
-  if (authLoading || loading || !data) {
+  if (authLoading || loading) {
     return (
       <Layout>
         <div className="flex items-center justify-center h-64">
           <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary-600"></div>
+        </div>
+      </Layout>
+    )
+  }
+
+  if (error) {
+    return (
+      <Layout>
+        <div className="px-4 py-6">
+          <div className="bg-red-50 border border-red-200 rounded-lg p-6">
+            <h2 className="text-xl font-semibold text-red-800 mb-2">Error Loading Analytics</h2>
+            <p className="text-red-600">{error}</p>
+            <button
+              onClick={fetchAnalytics}
+              className="mt-4 bg-red-600 text-white px-4 py-2 rounded-lg hover:bg-red-700 transition-colors"
+            >
+              Retry
+            </button>
+          </div>
+        </div>
+      </Layout>
+    )
+  }
+
+  if (!data) {
+    return (
+      <Layout>
+        <div className="px-4 py-6">
+          <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-6">
+            <p className="text-yellow-800">No analytics data available</p>
+          </div>
         </div>
       </Layout>
     )

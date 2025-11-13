@@ -11,7 +11,9 @@ export default function Home() {
   useEffect(() => {
     if (!loading) {
       if (user) {
-        router.push('/dashboard')
+        // Redirect admins to admin dashboard, regular users to dashboard
+        const redirectPath = user.role === 'admin' ? '/admin' : '/dashboard'
+        router.push(redirectPath)
       } else {
         router.push('/login')
       }

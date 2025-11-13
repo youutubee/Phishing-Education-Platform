@@ -93,7 +93,9 @@ export default function RegisterPage() {
       const data = await register(formData.email, formData.password, formData.role)
       if (data?.token) {
         toast.success('Registration successful! Welcome to SEAP!')
-        router.push('/dashboard')
+        // Redirect admins to admin dashboard, regular users to dashboard
+        const redirectPath = data?.user?.role === 'admin' ? '/admin' : '/dashboard'
+        router.push(redirectPath)
       } else {
         setErrors({ general: data?.error || 'Registration failed' })
         toast.error(data?.error || 'Registration failed')

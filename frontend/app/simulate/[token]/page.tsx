@@ -21,7 +21,7 @@ export default function SimulatePage() {
         return envUrl.replace(/\/$/, '')
       }
     }
-    return 'http://localhost:8081'
+    return 'http://localhost:8080'
   }, [])
 
   useEffect(() => {

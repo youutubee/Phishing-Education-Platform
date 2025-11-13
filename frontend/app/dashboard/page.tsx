@@ -90,7 +90,7 @@ export default function DashboardPage() {
               View My Campaigns
             </Link>
             <Link
-              href="/analytics"
+              href="/admin/analytics"
               className="bg-gray-200 text-gray-800 px-6 py-3 rounded-lg hover:bg-gray-300 transition-colors text-center"
             >
               View Analytics

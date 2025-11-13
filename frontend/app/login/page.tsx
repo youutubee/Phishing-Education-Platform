@@ -71,7 +71,9 @@ export default function LoginPage() {
       const data = await login(formData.email, formData.password)
       if (data?.token) {
         toast.success('Login successful!')
-        router.push('/dashboard')
+        // Redirect admins to admin dashboard, regular users to dashboard
+        const redirectPath = data?.user?.role === 'admin' ? '/admin' : '/dashboard'
+        router.push(redirectPath)
       } else {
         setErrors({ general: data?.error || 'Login failed' })
         toast.error(data?.error || 'Login failed')

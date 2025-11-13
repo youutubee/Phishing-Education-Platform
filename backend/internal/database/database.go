@@ -2,9 +2,11 @@ package database
 
 import (
 	"context"
+	"crypto/tls"
 	"fmt"
 	"log"
 	"os"
+	"strings"
 	"time"
 
 	"go.mongodb.org/mongo-driver/bson"
@@ -39,8 +41,16 @@ func InitDB() (*mongo.Client, *mongo.Database, error) {
 	// Set connect timeout
 	clientOptions.SetConnectTimeout(30 * time.Second)
 
-	// For Atlas connections, ensure TLS is enabled (it should be in the connection string)
-	// If the connection string starts with mongodb+srv://, TLS is automatically enabled
+	// For Atlas connections, ensure TLS is properly configured
+	// mongodb+srv:// automatically enables TLS, so no explicit config needed
+	// For mongodb:// connections to Atlas, explicitly enable TLS
+	if len(mongoURL) > 10 && mongoURL[:10] == "mongodb://" && strings.Contains(mongoURL, ".mongodb.net") {
+		// For standard mongodb:// connections to Atlas, TLS must be enabled
+		tlsConfig := &tls.Config{
+			InsecureSkipVerify: false, // Use secure TLS with certificate validation
+		}
+		clientOptions.SetTLSConfig(tlsConfig)
+	}
 
 	client, err := mongo.Connect(ctx, clientOptions)
 	if err != nil {

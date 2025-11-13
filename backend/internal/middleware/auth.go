@@ -120,8 +120,14 @@ func AuthMiddleware(next http.Handler) http.Handler {
 
 func AdminMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		role := r.Context().Value(UserRoleKey).(string)
-		if role != "admin" {
+		roleValue := r.Context().Value(UserRoleKey)
+		if roleValue == nil {
+			respondWithError(w, http.StatusUnauthorized, "Authentication required")
+			return
+		}
+
+		role, ok := roleValue.(string)
+		if !ok || role != "admin" {
 			respondWithError(w, http.StatusForbidden, "Admin access required")
 			return
 		}

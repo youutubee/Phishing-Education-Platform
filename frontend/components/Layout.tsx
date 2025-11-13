@@ -19,16 +19,16 @@ export default function Layout({ children }: { children: React.ReactNode }) {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between h-16">
             <div className="flex">
-              <Link href="/dashboard" className="flex items-center px-2 py-2 text-xl font-bold text-primary-700">
+              <Link href="/admin/campaigns" className="flex items-center px-2 py-2 text-xl font-bold text-primary-700">
                 SEAP
               </Link>
               <div className="hidden sm:ml-6 sm:flex sm:space-x-8">
-                <Link href="/dashboard" className="inline-flex items-center px-1 pt-1 text-sm font-medium text-gray-900 hover:text-primary-600">
+                {/* <Link href="/dashboard" className="inline-flex items-center px-1 pt-1 text-sm font-medium text-gray-900 hover:text-primary-600">
                   Dashboard
-                </Link>
+                </Link> */}
                 {user?.role === 'admin' && (
                   <>
-                    <Link href="/admin/campaigns" className="inline-flex items-center px-1 pt-1 text-sm font-medium text-gray-900 hover:text-primary-600">
+                    <Link href="/admin" className="inline-flex items-center px-1 pt-1 text-sm font-medium text-gray-900 hover:text-primary-600">
                       Admin Panel
                     </Link>
                     <Link href="/admin/users" className="inline-flex items-center px-1 pt-1 text-sm font-medium text-gray-900 hover:text-primary-600">
@@ -42,15 +42,15 @@ export default function Layout({ children }: { children: React.ReactNode }) {
                     </Link>
                   </>
                 )}
-                <Link href="/campaigns" className="inline-flex items-center px-1 pt-1 text-sm font-medium text-gray-900 hover:text-primary-600">
+                {/* <Link href="/campaigns" className="inline-flex items-center px-1 pt-1 text-sm font-medium text-gray-900 hover:text-primary-600">
                   My Campaigns
-                </Link>
+                </Link> */}
                 <Link href="/leaderboard" className="inline-flex items-center px-1 pt-1 text-sm font-medium text-gray-900 hover:text-primary-600">
                   Leaderboard
                 </Link>
-                <Link href="/analytics" className="inline-flex items-center px-1 pt-1 text-sm font-medium text-gray-900 hover:text-primary-600">
+                {/* <Link href="/analytics" className="inline-flex items-center px-1 pt-1 text-sm font-medium text-gray-900 hover:text-primary-600">
                   Analytics
-                </Link>
+                </Link> */}
                 <Link href="/profile" className="inline-flex items-center px-1 pt-1 text-sm font-medium text-gray-900 hover:text-primary-600">
                   Profile
                 </Link>
