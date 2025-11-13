@@ -3,7 +3,10 @@ package handlers
 import (
 	"context"
 	"encoding/json"
+	"log"
 	"net/http"
+	"os"
+	"strings"
 	"time"
 
 	"go.mongodb.org/mongo-driver/bson"
@@ -186,14 +189,21 @@ func (h *Handler) UpdateCampaign(w http.ResponseWriter, r *http.Request) {
 		"description":      req.Description,
 		"email_text":       req.EmailText,
 		"landing_page_url": req.LandingPageURL,
-		"expiry_date":      req.ExpiryDate,
 		"updated_at":       time.Now(),
+	}
+
+	// Handle expiry date - set if provided, unset if nil
+	updateOp := bson.M{"$set": updateFields}
+	if req.ExpiryDate != nil {
+		updateFields["expiry_date"] = req.ExpiryDate
+	} else {
+		updateOp["$unset"] = bson.M{"expiry_date": ""}
 	}
 
 	_, err = campaignsCollection.UpdateOne(
 		ctx,
 		bson.M{"_id": campaignID},
-		bson.M{"$set": updateFields},
+		updateOp,
 	)
 	if err != nil {
 		respondWithError(w, http.StatusInternalServerError, "Failed to update campaign")
@@ -319,6 +329,16 @@ func (h *Handler) ApproveCampaign(w http.ResponseWriter, r *http.Request) {
 
 	// Update campaign status
 	campaignsCollection := h.DB.Collection("campaigns")
+	var campaign models.Campaign
+	err = campaignsCollection.FindOne(ctx, bson.M{"_id": campaignID}).Decode(&campaign)
+	if err == mongo.ErrNoDocuments {
+		respondWithError(w, http.StatusNotFound, "Campaign not found")
+		return
+	} else if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Database error")
+		return
+	}
+
 	_, err = campaignsCollection.UpdateOne(
 		ctx,
 		bson.M{"_id": campaignID},
@@ -348,6 +368,24 @@ func (h *Handler) ApproveCampaign(w http.ResponseWriter, r *http.Request) {
 	_, err = auditLogsCollection.InsertOne(ctx, auditLog)
 	if err != nil {
 		// Log error but don't fail the request
+	}
+
+	// Send notification email to the campaign owner (the user who created the campaign)
+	// NOTE: This is NOT the email from the phishing form - that's just simulated data
+	campaign.Status = "approved"
+	campaign.AdminComment = req.Comment
+	usersCollection := h.DB.Collection("users")
+	var owner models.User
+	if err := usersCollection.FindOne(ctx, bson.M{"_id": campaign.UserID}).Decode(&owner); err == nil {
+		frontendURL := strings.TrimSuffix(os.Getenv("APP_BASE_URL"), "/")
+		if frontendURL == "" {
+			frontendURL = "http://localhost:3000"
+		}
+		simulationLink := frontendURL + "/simulate/" + campaign.TrackingToken
+		log.Printf("Sending approval email to campaign owner: %s", owner.Email)
+		go utils.SendCampaignDecisionEmail(owner.Email, campaign.Title, "approved", req.Comment, simulationLink)
+	} else {
+		log.Printf("WARNING: Could not find campaign owner user ID: %s", campaign.UserID.Hex())
 	}
 
 	respondWithJSON(w, http.StatusOK, map[string]string{"message": "Campaign approved successfully"})
@@ -381,6 +419,16 @@ func (h *Handler) RejectCampaign(w http.ResponseWriter, r *http.Request) {
 
 	// Update campaign status
 	campaignsCollection := h.DB.Collection("campaigns")
+	var campaign models.Campaign
+	err = campaignsCollection.FindOne(ctx, bson.M{"_id": campaignID}).Decode(&campaign)
+	if err == mongo.ErrNoDocuments {
+		respondWithError(w, http.StatusNotFound, "Campaign not found")
+		return
+	} else if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Database error")
+		return
+	}
+
 	_, err = campaignsCollection.UpdateOne(
 		ctx,
 		bson.M{"_id": campaignID},
@@ -410,6 +458,19 @@ func (h *Handler) RejectCampaign(w http.ResponseWriter, r *http.Request) {
 	_, err = auditLogsCollection.InsertOne(ctx, auditLog)
 	if err != nil {
 		// Log error but don't fail the request
+	}
+
+	// Send notification email to the campaign owner (the user who created the campaign)
+	// NOTE: This is NOT the email from the phishing form - that's just simulated data
+	campaign.Status = "rejected"
+	campaign.AdminComment = req.Comment
+	usersCollection := h.DB.Collection("users")
+	var owner models.User
+	if err := usersCollection.FindOne(ctx, bson.M{"_id": campaign.UserID}).Decode(&owner); err == nil {
+		log.Printf("Sending rejection email to campaign owner: %s", owner.Email)
+		go utils.SendCampaignDecisionEmail(owner.Email, campaign.Title, "rejected", req.Comment, "")
+	} else {
+		log.Printf("WARNING: Could not find campaign owner user ID: %s", campaign.UserID.Hex())
 	}
 
 	respondWithJSON(w, http.StatusOK, map[string]string{"message": "Campaign rejected successfully"})

@@ -37,9 +37,6 @@ export default function Layout({ children }: { children: React.ReactNode }) {
                     <Link href="/admin/analytics" className="inline-flex items-center px-1 pt-1 text-sm font-medium text-gray-900 hover:text-primary-600">
                       Analytics
                     </Link>
-                    <Link href="/admin/leaderboard" className="inline-flex items-center px-1 pt-1 text-sm font-medium text-gray-900 hover:text-primary-600">
-                      Leaderboard
-                    </Link>
                     <Link href="/admin/audit-logs" className="inline-flex items-center px-1 pt-1 text-sm font-medium text-gray-900 hover:text-primary-600">
                       Audit Logs
                     </Link>
@@ -47,6 +44,9 @@ export default function Layout({ children }: { children: React.ReactNode }) {
                 )}
                 <Link href="/campaigns" className="inline-flex items-center px-1 pt-1 text-sm font-medium text-gray-900 hover:text-primary-600">
                   My Campaigns
+                </Link>
+                <Link href="/leaderboard" className="inline-flex items-center px-1 pt-1 text-sm font-medium text-gray-900 hover:text-primary-600">
+                  Leaderboard
                 </Link>
                 <Link href="/analytics" className="inline-flex items-center px-1 pt-1 text-sm font-medium text-gray-900 hover:text-primary-600">
                   Analytics

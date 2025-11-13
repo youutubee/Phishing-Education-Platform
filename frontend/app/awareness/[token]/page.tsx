@@ -1,8 +1,7 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useParams } from 'next/navigation'
-import api from '@/lib/api'
 import Link from 'next/link'
 
 export default function AwarenessPage() {
@@ -10,21 +9,47 @@ export default function AwarenessPage() {
   const token = params.token as string
   const [content, setContent] = useState<any>(null)
   const [loading, setLoading] = useState(true)
+  const apiBaseUrl = useMemo(() => {
+    if (typeof window !== 'undefined') {
+      const envUrl = process.env.NEXT_PUBLIC_API_URL
+      if (envUrl && envUrl.length > 0) {
+        return envUrl.replace(/\/$/, '')
+      }
+    }
+    return 'http://localhost:8080'
+  }, [])
 
   useEffect(() => {
-    fetchContent()
-  }, [token])
+    if (!token) return
 
-  const fetchContent = async () => {
-    try {
-      const response = await api.get(`/api/awareness/${token}`)
-      setContent(response.data)
-    } catch (error) {
-      console.error('Failed to fetch awareness content:', error)
-    } finally {
-      setLoading(false)
+    const controller = new AbortController()
+
+    const fetchContent = async () => {
+      try {
+        const response = await fetch(`${apiBaseUrl}/api/awareness/${token}`, {
+          signal: controller.signal,
+        })
+
+        if (!response.ok) {
+          throw new Error('Failed to fetch awareness content')
+        }
+
+        const data = await response.json()
+        setContent(data)
+      } catch (error) {
+        if ((error as any)?.name !== 'AbortError') {
+          console.error('Failed to fetch awareness content:', error)
+        }
+      } finally {
+        setLoading(false)
+      }
     }
-  }
+
+    setLoading(true)
+    fetchContent()
+
+    return () => controller.abort()
+  }, [apiBaseUrl, token])
 
   if (loading) {
     return (
@@ -79,8 +104,7 @@ export default function AwarenessPage() {
                 <div className="bg-blue-50 p-4 rounded-lg">
                   <h3 className="font-semibold text-blue-900 mb-2">3. Look for Urgency</h3>
                   <p className="text-gray-700 text-sm">
-                    Phishing emails often create a sense of urgency ("Act now!" or "Your account will be closed!") 
-                    to make you act quickly without thinking.
+                    {`Phishing emails often create a sense of urgency ("Act now!" or "Your account will be closed!") to make you act quickly without thinking.`}
                   </p>
                 </div>
                 <div className="bg-blue-50 p-4 rounded-lg">
@@ -109,14 +133,14 @@ export default function AwarenessPage() {
             <div className="bg-green-50 border-l-4 border-green-500 p-4 rounded">
               <h2 className="text-2xl font-semibold mb-4 text-green-700">✅ Best Practices for Cybersecurity</h2>
               <ul className="list-disc list-inside space-y-2 text-gray-700">
-                <li><strong>Never enter credentials</strong> on suspicious pages or links from emails</li>
-                <li><strong>Use two-factor authentication (2FA)</strong> whenever possible for added security</li>
-                <li><strong>Keep your software and browsers updated</strong> to patch security vulnerabilities</li>
-                <li><strong>Be cautious with email attachments</strong> - scan them before opening</li>
-                <li><strong>Report suspicious emails</strong> to your IT department or email provider</li>
-                <li><strong>Use strong, unique passwords</strong> for each account and consider a password manager</li>
-                <li><strong>Verify the website's SSL certificate</strong> - look for the padlock icon in your browser</li>
-                <li><strong>Don't trust caller ID</strong> - phone numbers can be spoofed in vishing attacks</li>
+                <li><strong>{'Never enter credentials'}</strong> on suspicious pages or links from emails</li>
+                <li><strong>{'Use two-factor authentication (2FA)'}</strong> whenever possible for added security</li>
+                <li><strong>{'Keep your software and browsers updated'}</strong> to patch security vulnerabilities</li>
+                <li><strong>{'Be cautious with email attachments'}</strong> - scan them before opening</li>
+                <li><strong>{'Report suspicious emails'}</strong> to your IT department or email provider</li>
+                <li><strong>{'Use strong, unique passwords'}</strong> for each account and consider a password manager</li>
+                <li><strong>{`Verify the website's SSL certificate`}</strong> - look for the padlock icon in your browser</li>
+                <li><strong>{`Don't trust caller ID`}</strong> - phone numbers can be spoofed in vishing attacks</li>
               </ul>
             </div>
 
@@ -144,12 +168,12 @@ export default function AwarenessPage() {
             <div className="bg-purple-50 border-l-4 border-purple-500 p-4 rounded">
               <h2 className="text-2xl font-semibold mb-3 text-purple-700">🛡️ What to Do If You Suspect Phishing</h2>
               <ol className="list-decimal list-inside space-y-2 text-gray-700">
-                <li><strong>Don't click</strong> any links or download attachments</li>
-                <li><strong>Don't reply</strong> to the email or provide any information</li>
-                <li><strong>Report it</strong> to your IT security team or email provider</li>
-                <li><strong>Delete the email</strong> after reporting</li>
-                <li><strong>If you clicked a link,</strong> change your passwords immediately and monitor your accounts</li>
-                <li><strong>If you entered credentials,</strong> enable 2FA and contact the service provider</li>
+                <li><strong>{`Don't click`}</strong> any links or download attachments</li>
+                <li><strong>{`Don't reply`}</strong> to the email or provide any information</li>
+                <li><strong>{'Report it'}</strong> to your IT security team or email provider</li>
+                <li><strong>{'Delete the email'}</strong> after reporting</li>
+                <li><strong>{'If you clicked a link,'}</strong> change your passwords immediately and monitor your accounts</li>
+                <li><strong>{'If you entered credentials,'}</strong> enable 2FA and contact the service provider</li>
               </ol>
             </div>
           </div>

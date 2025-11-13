@@ -237,10 +237,10 @@ func (h *Handler) GetLeaderboard(w http.ResponseWriter, r *http.Request) {
 		}
 		campaignCursor.Close(ctx)
 
-		// Count clicks (link_opened or clicked)
+		// Count clicks (only link_opened events)
 		clickCount, _ := eventsCollection.CountDocuments(ctx, bson.M{
 			"campaign_id": bson.M{"$in": campaignIDs},
-			"event_type":  bson.M{"$in": []string{"link_opened", "clicked"}},
+			"event_type":  "link_opened",
 		})
 
 		// Count conversions (awareness_viewed)

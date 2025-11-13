@@ -1,8 +1,7 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useParams, useRouter } from 'next/navigation'
-import api from '@/lib/api'
 import toast from 'react-hot-toast'
 
 export default function SimulatePage() {
@@ -15,30 +14,74 @@ export default function SimulatePage() {
     email: '',
     password: '',
   })
+  const apiBaseUrl = useMemo(() => {
+    if (typeof window !== 'undefined') {
+      const envUrl = process.env.NEXT_PUBLIC_API_URL
+      if (envUrl && envUrl.length > 0) {
+        return envUrl.replace(/\/$/, '')
+      }
+    }
+    return 'http://localhost:8080'
+  }, [])
 
   useEffect(() => {
-    fetchCampaign()
-  }, [token])
+    if (!token) return
 
-  const fetchCampaign = async () => {
-    try {
-      const response = await api.get(`/api/simulate/${token}`)
-      setCampaign(response.data)
-    } catch (error: any) {
-      toast.error(error.response?.data?.error || 'Campaign not found')
-      router.push('/')
-    } finally {
-      setLoading(false)
+    const controller = new AbortController()
+
+    const fetchCampaign = async () => {
+      try {
+        const response = await fetch(`${apiBaseUrl}/api/simulate/${token}`, {
+          signal: controller.signal,
+        })
+
+        if (!response.ok) {
+          const data = await response.json().catch(() => ({}))
+          const message = data?.error || 'Campaign not found'
+          toast.error(message)
+          router.push('/')
+          return
+        }
+
+        const data = await response.json()
+        setCampaign(data)
+      } catch (error: any) {
+        if (error?.name !== 'AbortError') {
+          toast.error('Failed to load campaign')
+          router.push('/')
+        }
+      } finally {
+        setLoading(false)
+      }
     }
-  }
+
+    setLoading(true)
+    fetchCampaign()
+
+    return () => controller.abort()
+  }, [apiBaseUrl, router, token])
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
+    if (!token) return
+
     try {
-      await api.post(`/api/simulate/${token}/submit`, formData)
+      const response = await fetch(`${apiBaseUrl}/api/simulate/${token}/submit`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(formData),
+      })
+
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({}))
+        throw new Error(data?.error || 'Failed to submit')
+      }
+
       router.push(`/awareness/${token}`)
     } catch (error: any) {
-      toast.error(error.response?.data?.error || 'Failed to submit')
+      toast.error(error?.message || 'Failed to submit')
     }
   }
 

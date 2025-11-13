@@ -2,9 +2,9 @@
 
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
+import Layout from '@/components/Layout'
 import { useAuth } from '@/lib/auth'
 import api from '@/lib/api'
-import Layout from '@/components/Layout'
 import LeaderboardTable, { LeaderboardEntry } from '@/components/LeaderboardTable'
 
 export default function LeaderboardPage() {
@@ -14,13 +14,13 @@ export default function LeaderboardPage() {
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    if (!authLoading && (!user || user.role !== 'admin')) {
-      router.push('/dashboard')
+    if (!authLoading && !user) {
+      router.push('/login')
     }
-  }, [user, authLoading, router])
+  }, [authLoading, router, user])
 
   useEffect(() => {
-    if (user && user.role === 'admin') {
+    if (user) {
       fetchLeaderboard()
     }
   }, [user])
@@ -53,10 +53,11 @@ export default function LeaderboardPage() {
         <p className="text-gray-600 mb-6">
           Top campaign creators ranked by engagement, conversions, and campaign quality.
         </p>
+
         <LeaderboardTable leaderboard={leaderboard} />
 
         {leaderboard.length === 0 && (
-          <div className="bg-white rounded-lg shadow p-12 text-center">
+          <div className="bg-white rounded-lg shadow p-12 text-center mt-6">
             <p className="text-gray-500">No leaderboard data available yet</p>
           </div>
         )}
@@ -64,4 +65,5 @@ export default function LeaderboardPage() {
     </Layout>
   )
 }
+
 

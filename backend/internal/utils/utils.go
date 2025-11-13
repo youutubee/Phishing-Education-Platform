@@ -18,4 +18,3 @@ func SanitizeInput(input string) string {
 	// In production, use a proper HTML sanitizer
 	return input
 }
-

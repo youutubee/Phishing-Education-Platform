@@ -58,6 +58,8 @@ func main() {
 
 	// Protected routes (require authentication)
 	api := r.PathPrefix("/api").Subrouter()
+	// Apply CORS to subrouter as well (subrouters don't inherit middleware)
+	api.Use(middleware.CORS)
 	api.Use(middleware.AuthMiddleware)
 
 	// User routes
@@ -69,9 +71,12 @@ func main() {
 	api.HandleFunc("/user/campaigns/{id}", h.UpdateCampaign).Methods("PUT")
 	api.HandleFunc("/user/campaigns/{id}", h.DeleteCampaign).Methods("DELETE")
 	api.HandleFunc("/user/analytics", h.GetUserAnalytics).Methods("GET")
+	api.HandleFunc("/leaderboard", h.GetLeaderboard).Methods("GET")
 
 	// Admin routes
 	admin := api.PathPrefix("/admin").Subrouter()
+	// CORS is already applied via parent router, but ensure it's there
+	admin.Use(middleware.CORS)
 	admin.Use(middleware.AdminMiddleware)
 
 	admin.HandleFunc("/campaigns", h.GetAllCampaigns).Methods("GET")

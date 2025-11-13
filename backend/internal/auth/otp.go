@@ -15,4 +15,3 @@ func GenerateOTP() string {
 func GetOTPExpiry() time.Time {
 	return time.Now().Add(5 * time.Minute) // 5 minutes default
 }
-

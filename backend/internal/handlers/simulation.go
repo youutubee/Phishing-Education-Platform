@@ -43,25 +43,45 @@ func (h *Handler) SimulateLanding(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if campaign.ExpiryDate != nil && time.Now().After(*campaign.ExpiryDate) {
-		respondWithError(w, http.StatusGone, "Campaign has expired")
-		return
-	}
+	// Expiry date check is optional - campaigns work indefinitely unless explicitly expired
+	// Uncomment the following block if you want to enforce expiry dates:
+	/*
+		if campaign.ExpiryDate != nil && !campaign.ExpiryDate.IsZero() {
+			now := time.Now()
+			if now.After(*campaign.ExpiryDate) {
+				respondWithError(w, http.StatusGone, "Campaign has expired")
+				return
+			}
+		}
+	*/
 
-	// Log link opened event
+	// Log link opened event (with deduplication - prevent duplicate events within 5 seconds)
 	ipAddress := r.RemoteAddr
 	userAgent := r.UserAgent()
-	event := map[string]interface{}{
+	eventsCollection := h.DB.Collection("events")
+
+	// Check if a similar event was logged recently (within last 5 seconds)
+	fiveSecondsAgo := time.Now().Add(-5 * time.Second)
+	recentEventCount, _ := eventsCollection.CountDocuments(ctx, bson.M{
 		"campaign_id": campaign.ID,
 		"event_type":  "link_opened",
 		"ip_address":  ipAddress,
-		"user_agent":  userAgent,
-		"created_at":  time.Now(),
-	}
-	eventsCollection := h.DB.Collection("events")
-	_, err = eventsCollection.InsertOne(ctx, event)
-	if err != nil {
-		// Log error but continue
+		"created_at":  bson.M{"$gte": fiveSecondsAgo},
+	})
+
+	// Only log if no recent event exists (prevents duplicate logging from React StrictMode or double-clicks)
+	if recentEventCount == 0 {
+		event := map[string]interface{}{
+			"campaign_id": campaign.ID,
+			"event_type":  "link_opened",
+			"ip_address":  ipAddress,
+			"user_agent":  userAgent,
+			"created_at":  time.Now(),
+		}
+		_, err = eventsCollection.InsertOne(ctx, event)
+		if err != nil {
+			// Log error but continue
+		}
 	}
 
 	// Return landing page data

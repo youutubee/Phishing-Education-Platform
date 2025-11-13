@@ -95,6 +95,9 @@ The server will start on `http://localhost:8080` (or the port specified in `.env
 | `PORT` | Server port | No | `8080` |
 | `JWT_SECRET` | Secret key for JWT tokens | Yes | - |
 | `JWT_EXPIRY` | JWT token expiry duration | No | `24h` |
+| `RESEND_API_KEY` | API key for Resend transactional emails | No | - |
+| `RESEND_FROM_EMAIL` | Sender address used for Resend emails | No | `no-reply@seap.local` |
+| `APP_BASE_URL` | Base URL of the frontend (used in emails) | No | `http://localhost:3000` |
 
 ## API Endpoints
 
@@ -116,6 +119,7 @@ The server will start on `http://localhost:8080` (or the port specified in `.env
 - `PUT /api/user/campaigns/{id}` - Update campaign
 - `DELETE /api/user/campaigns/{id}` - Delete campaign
 - `GET /api/user/analytics` - Get user analytics
+- `GET /api/leaderboard` - Get leaderboard (available to all authenticated users)
 
 ### Admin Routes (Protected - Admin Only)
 - `GET /api/admin/campaigns` - Get all campaigns
@@ -124,8 +128,8 @@ The server will start on `http://localhost:8080` (or the port specified in `.env
 - `GET /api/admin/users` - Get all users
 - `DELETE /api/admin/users/{id}` - Delete user
 - `GET /api/admin/audit-logs` - Get audit logs
-- `GET /api/admin/leaderboard` - Get leaderboard
 - `GET /api/admin/analytics` - Get admin analytics
+- `GET /api/admin/leaderboard` - Get leaderboard (admin-specific entry point)
 
 ### Simulation Routes (Public)
 - `GET /api/simulate/{token}` - Simulate landing page

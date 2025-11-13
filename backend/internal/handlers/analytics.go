@@ -60,10 +60,10 @@ func (h *Handler) GetUserAnalytics(w http.ResponseWriter, r *http.Request) {
 	campaignCursor.Close(ctx)
 
 	if len(campaignIDs) > 0 {
-		// Count clicks
+		// Count clicks (only link_opened events - clicked is not used)
 		totalClicks, _ := eventsCollection.CountDocuments(ctx, bson.M{
 			"campaign_id": bson.M{"$in": campaignIDs},
-			"event_type":  bson.M{"$in": []string{"link_opened", "clicked"}},
+			"event_type":  "link_opened",
 		})
 		stats.TotalClicks = int(totalClicks)
 
@@ -110,7 +110,7 @@ func (h *Handler) GetUserAnalytics(w http.ResponseWriter, r *http.Request) {
 
 		clicks, _ := eventsCollection.CountDocuments(ctx, bson.M{
 			"campaign_id": campaign.ID,
-			"event_type":  bson.M{"$in": []string{"link_opened", "clicked"}},
+			"event_type":  "link_opened",
 		})
 		submissions, _ := eventsCollection.CountDocuments(ctx, bson.M{
 			"campaign_id": campaign.ID,
@@ -222,7 +222,7 @@ func (h *Handler) GetAdminAnalytics(w http.ResponseWriter, r *http.Request) {
 	totalEvents, _ := eventsCollection.CountDocuments(ctx, bson.M{})
 	stats.TotalEvents = int(totalEvents)
 	totalClicks, _ := eventsCollection.CountDocuments(ctx, bson.M{
-		"event_type": bson.M{"$in": []string{"link_opened", "clicked"}},
+		"event_type": "link_opened",
 	})
 	stats.TotalClicks = int(totalClicks)
 	totalConversions, _ := eventsCollection.CountDocuments(ctx, bson.M{
