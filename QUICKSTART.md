@@ -44,7 +44,7 @@ DB_NAME=seap
 JWT_SECRET=your-secret-key-change-in-production
 JWT_EXPIRY=24h
 OTP_EXPIRY=300
-PORT=8080
+PORT=8081
 ```
 
 4. Install Go dependencies:
@@ -57,7 +57,7 @@ go mod download
 go run main.go
 ```
 
-The backend will start on `http://localhost:8080`
+The backend will start on `http://localhost:8081`
 
 ## Step 3: Frontend Setup
 
@@ -73,7 +73,7 @@ npm install
 
 3. Create `.env.local` file:
 ```bash
-echo "NEXT_PUBLIC_API_URL=http://localhost:8080" > .env.local
+echo "NEXT_PUBLIC_API_URL=http://localhost:8081" > .env.local
 ```
 
 4. Run the frontend:
@@ -118,7 +118,7 @@ The frontend will start on `http://localhost:3000`
 ### Backend won't start:
 - Check PostgreSQL is running: `pg_isready`
 - Verify database credentials in `.env`
-- Check if port 8080 is available
+- Check if port 8081 is available
 
 ### Frontend won't start:
 - Make sure Node.js 18+ is installed: `node --version`

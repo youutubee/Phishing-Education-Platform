@@ -78,7 +78,7 @@ DB_NAME=seap
 JWT_SECRET=your-secret-key-change-in-production
 JWT_EXPIRY=24h
 OTP_EXPIRY=300
-PORT=8080
+PORT=8081
 ```
 
 4. Create the PostgreSQL database:
@@ -107,7 +107,7 @@ npm install
 
 3. Create a `.env.local` file:
 ```bash
-NEXT_PUBLIC_API_URL=http://localhost:8080
+NEXT_PUBLIC_API_URL=http://localhost:8081
 ```
 
 4. Run the development server:

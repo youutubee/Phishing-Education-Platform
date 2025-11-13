@@ -42,9 +42,15 @@ export default function Layout({ children }: { children: React.ReactNode }) {
                     </Link>
                   </>
                 )}
-                {/* <Link href="/campaigns" className="inline-flex items-center px-1 pt-1 text-sm font-medium text-gray-900 hover:text-primary-600">
+                <Link href="/dashboard" className="inline-flex items-center px-1 pt-1 text-sm font-medium text-gray-900 hover:text-primary-600">
+                  Dashboard
+                </Link>
+                <Link href="/campaigns" className="inline-flex items-center px-1 pt-1 text-sm font-medium text-gray-900 hover:text-primary-600">
                   My Campaigns
-                </Link> */}
+                </Link>
+                <Link href="/campaigns/new" className="inline-flex items-center px-1 pt-1 text-sm font-medium text-gray-900 hover:text-primary-600">
+                  Create Campaign
+                </Link>
                 <Link href="/leaderboard" className="inline-flex items-center px-1 pt-1 text-sm font-medium text-gray-900 hover:text-primary-600">
                   Leaderboard
                 </Link>

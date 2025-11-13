@@ -36,7 +36,7 @@ MONGODB_URL=mongodb://localhost:27017
 DB_NAME=seap
 
 # Server Port
-PORT=8080
+PORT=8081
 
 # JWT Secret (generate a strong random key for production)
 JWT_SECRET=your-super-secret-jwt-key-change-this-in-production
@@ -84,7 +84,7 @@ go build -o seap-backend main.go
 ./seap-backend
 ```
 
-The server will start on `http://localhost:8080` (or the port specified in `.env`)
+The server will start on `http://localhost:8081` (or the port specified in `.env`)
 
 ## Environment Variables
 
@@ -92,7 +92,7 @@ The server will start on `http://localhost:8080` (or the port specified in `.env
 |----------|-------------|----------|---------|
 | `MONGODB_URL` | MongoDB connection string | Yes | `mongodb://localhost:27017` |
 | `DB_NAME` | Database name | No | `seap` |
-| `PORT` | Server port | No | `8080` |
+| `PORT` | Server port | No | `8081` |
 | `JWT_SECRET` | Secret key for JWT tokens | Yes | - |
 | `JWT_EXPIRY` | JWT token expiry duration | No | `24h` |
 | `RESEND_API_KEY` | API key for Resend transactional emails | No | - |
@@ -148,7 +148,7 @@ The server will start on `http://localhost:8080` (or the port specified in `.env
 
 2. **Port Already in Use**
    - Change `PORT` in `.env` to a different port
-   - Or stop the process using port 8080
+   - Or stop the process using port 8081
 
 3. **TLS Errors (Atlas)**
    - Ensure connection string uses `mongodb+srv://`

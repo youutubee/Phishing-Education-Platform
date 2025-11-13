@@ -16,7 +16,7 @@ export default function AwarenessPage() {
         return envUrl.replace(/\/$/, '')
       }
     }
-    return 'http://localhost:8080'
+    return 'http://localhost:8081'
   }, [])
 
   useEffect(() => {

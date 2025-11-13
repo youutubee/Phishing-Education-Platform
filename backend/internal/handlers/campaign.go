@@ -3,6 +3,7 @@ package handlers
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"log"
 	"net/http"
 	"os"
@@ -533,14 +534,42 @@ func (h *Handler) ShareCampaign(w http.ResponseWriter, r *http.Request) {
 	}
 	simulationLink := frontendURL + "/simulate/" + campaign.TrackingToken
 
-	// Send email asynchronously
+	// Check if Resend API is configured
+	resendAPIKey := os.Getenv("RESEND_API_KEY")
+	if resendAPIKey == "" {
+		log.Printf("WARNING: RESEND_API_KEY not set; cannot send email")
+		respondWithError(w, http.StatusServiceUnavailable, "Email service is not configured. Please contact administrator.")
+		return
+	}
+
+	// Validate email format
+	if !strings.Contains(req.Email, "@") {
+		respondWithError(w, http.StatusBadRequest, "Invalid email address format")
+		return
+	}
+
+	// Send email asynchronously but log errors
+	emailSent := make(chan error, 1)
 	go func() {
-		if err := utils.SendCampaignShareEmail(req.Email, campaign.Title, simulationLink); err != nil {
+		err := utils.SendCampaignShareEmail(req.Email, campaign.Title, simulationLink)
+		emailSent <- err
+		if err != nil {
 			log.Printf("ERROR: Failed to send campaign share email to %s: %v", req.Email, err)
 		} else {
 			log.Printf("Successfully sent campaign share email to %s for campaign: %s", req.Email, campaign.Title)
 		}
 	}()
+
+	// Wait a short time to check if email sending started successfully
+	select {
+	case err := <-emailSent:
+		if err != nil {
+			respondWithError(w, http.StatusInternalServerError, fmt.Sprintf("Failed to send email: %v", err))
+			return
+		}
+	case <-time.After(100 * time.Millisecond):
+		// Email sending started, return success
+	}
 
 	respondWithJSON(w, http.StatusOK, map[string]string{
 		"message": "Campaign link sent successfully",

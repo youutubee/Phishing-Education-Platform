@@ -34,6 +34,12 @@ func sendEmail(to, subject, html string) error {
 	if from == "" {
 		from = "onboarding@resend.dev" // Default Resend test domain
 		log.Printf("WARNING: RESEND_FROM_EMAIL not set; using default: %s", from)
+	} else {
+		// Validate email format - must contain @ symbol
+		if !strings.Contains(from, "@") {
+			log.Printf("WARNING: RESEND_FROM_EMAIL '%s' is not a valid email format. Using default.", from)
+			from = "onboarding@resend.dev"
+		}
 	}
 
 	payload := resendEmailRequest{
