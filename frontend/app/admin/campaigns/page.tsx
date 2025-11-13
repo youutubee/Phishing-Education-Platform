@@ -8,7 +8,7 @@ import Layout from '@/components/Layout'
 import toast from 'react-hot-toast'
 
 interface Campaign {
-  id: number
+  id: string  // MongoDB ObjectID
   title: string
   description: string
   status: string
@@ -22,7 +22,7 @@ export default function AdminCampaignsPage() {
   const router = useRouter()
   const [campaigns, setCampaigns] = useState<Campaign[]>([])
   const [loading, setLoading] = useState(true)
-  const [selectedCampaign, setSelectedCampaign] = useState<number | null>(null)
+  const [selectedCampaign, setSelectedCampaign] = useState<string | null>(null)
   const [comment, setComment] = useState('')
   const [action, setAction] = useState<'approve' | 'reject' | null>(null)
 
@@ -49,13 +49,13 @@ export default function AdminCampaignsPage() {
     }
   }
 
-  const handleApprove = async (id: number) => {
+  const handleApprove = async (id: string) => {
     setSelectedCampaign(id)
     setAction('approve')
     setComment('')
   }
 
-  const handleReject = async (id: number) => {
+  const handleReject = async (id: string) => {
     setSelectedCampaign(id)
     setAction('reject')
     setComment('')

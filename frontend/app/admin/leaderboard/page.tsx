@@ -7,7 +7,7 @@ import api from '@/lib/api'
 import Layout from '@/components/Layout'
 
 interface LeaderboardEntry {
-  user_id: number
+  user_id: string  // MongoDB ObjectID
   email: string
   total_campaigns: number
   total_clicks: number

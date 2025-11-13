@@ -9,7 +9,7 @@ import Link from 'next/link'
 import toast from 'react-hot-toast'
 
 interface Campaign {
-  id: number
+  id: string  // MongoDB ObjectID
   title: string
   description: string
   status: string
@@ -47,7 +47,7 @@ export default function CampaignsPage() {
     }
   }
 
-  const handleDelete = async (id: number) => {
+  const handleDelete = async (id: string) => {
     if (!confirm('Are you sure you want to delete this campaign?')) return
 
     try {
@@ -130,9 +130,23 @@ export default function CampaignsPage() {
                     {campaign.status === 'approved' && (
                       <div className="mt-3">
                         <p className="text-sm text-black mb-1">Simulation Link:</p>
-                        <code className="bg-gray-100 text-black px-2 py-1 rounded text-sm">
-                          {typeof window !== 'undefined' && `${window.location.origin}/simulate/${campaign.tracking_token}`}
-                        </code>
+                        <div className="flex items-center gap-2">
+                          <code className="bg-gray-100 text-black px-2 py-1 rounded text-sm flex-1">
+                            {typeof window !== 'undefined' && `${window.location.origin}/simulate/${campaign.tracking_token}`}
+                          </code>
+                          <button
+                            onClick={() => {
+                              const link = typeof window !== 'undefined' 
+                                ? `${window.location.origin}/simulate/${campaign.tracking_token}`
+                                : ''
+                              navigator.clipboard.writeText(link)
+                              toast.success('Link copied to clipboard!')
+                            }}
+                            className="bg-primary-600 text-white px-3 py-1 rounded text-sm hover:bg-primary-700 transition-colors"
+                          >
+                            Copy
+                          </button>
+                        </div>
                       </div>
                     )}
                   </div>
